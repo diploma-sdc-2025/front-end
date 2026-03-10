@@ -70,9 +70,3 @@ git remote add origin https://github.com/diploma-sdc-2025/front-end.git
 git branch -M main
 git push -u origin main
 ```
-
-## Next steps
-
-- Wire **match found** from matchmaking (e.g. WebSocket or polling) to redirect to `/game/:matchId`.
-- Implement **game screen**: load match/state/board from game-service, call battle-service when rounds run.
-- Add **shop** and **board** UI when backend endpoints are ready.
