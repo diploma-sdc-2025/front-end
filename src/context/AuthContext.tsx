@@ -7,6 +7,11 @@ import {
   type ReactNode,
 } from 'react'
 import { authApi } from '../api/auth.ts'
+import {
+  clearStoredDisplayName,
+  parseUsernameFromAccessToken,
+  setStoredDisplayName,
+} from '../util/displayName.ts'
 
 const ACCESS_KEY = 'autochess_access_token'
 const REFRESH_KEY = 'autochess_refresh_token'
@@ -42,31 +47,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (emailOrUsername: string, password: string) => {
-      const res = await authApi.login({ identifier: emailOrUsername, password })
-      setTokens(res.accessToken, res.refreshToken)
+      const id = emailOrUsername.trim()
+      if (!id) throw new Error('Enter email or username')
+      if (!password.trim()) throw new Error('Enter password')
+
+      const res = await authApi.login({ identifier: id, password })
+      setTokens(res.accessToken, res.refreshToken ?? '')
+      const fromJwt = parseUsernameFromAccessToken(res.accessToken)
+      setStoredDisplayName(fromJwt ?? id)
     },
-    [setTokens]
+    [setTokens],
   )
 
   const register = useCallback(
     async (username: string, email: string, password: string) => {
-      const res = await authApi.register({ username, email, password })
-      setTokens(res.accessToken, res.refreshToken)
+      const u = username.trim()
+      const e = email.trim()
+      if (!u) throw new Error('Enter username')
+      if (!e) throw new Error('Enter email')
+      if (!password.trim()) throw new Error('Enter password')
+
+      const res = await authApi.register({ username: u, email: e, password })
+      setTokens(res.accessToken, res.refreshToken ?? '')
+      const fromJwt = parseUsernameFromAccessToken(res.accessToken)
+      setStoredDisplayName(fromJwt ?? u)
     },
-    [setTokens]
+    [setTokens],
   )
 
   const logout = useCallback(async () => {
     const refresh = localStorage.getItem(REFRESH_KEY)
-    if (refresh) {
-      try {
+    try {
+      if (refresh?.trim()) {
         await authApi.logout({ refreshToken: refresh })
-      } catch {
-        // ignore
       }
+    } catch {
+      /* still clear local session */
     }
     localStorage.removeItem(ACCESS_KEY)
     localStorage.removeItem(REFRESH_KEY)
+    clearStoredDisplayName()
     setState((s) => ({ ...s, accessToken: null }))
   }, [])
 
@@ -79,7 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setTokens,
       getAccessToken,
     }),
-    [state, login, register, logout, setTokens, getAccessToken]
+    [state, login, register, logout, setTokens, getAccessToken],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

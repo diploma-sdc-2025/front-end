@@ -1,61 +1,25 @@
-import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.tsx'
-import { matchmakingApi } from '../api/matchmaking.ts'
 import style from './Pages.module.css'
+import { useEffect } from 'react'
+import { useMatchmakingQueue } from '../hooks/useMatchmakingQueue.ts'
+
+function formatElapsed(totalSec: number) {
+  const m = Math.floor(totalSec / 60)
+  const s = totalSec % 60
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+}
 
 export function Lobby() {
   const navigate = useNavigate()
   const { accessToken, logout } = useAuth()
-  const [inQueue, setInQueue] = useState(false)
-  const [position, setPosition] = useState<number | null>(null)
-  const [queueSize, setQueueSize] = useState(0)
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const queue = useMatchmakingQueue(accessToken, navigate)
 
   useEffect(() => {
     if (!accessToken) {
       navigate('/login', { replace: true })
-      return
     }
-    matchmakingApi.status(accessToken).then((s) => {
-      setInQueue(s.inQueue)
-      setPosition(s.position)
-      setQueueSize(s.queueSize)
-    }).catch(() => {})
   }, [accessToken, navigate])
-
-  async function handleJoin() {
-    if (!accessToken) return
-    setError('')
-    setLoading(true)
-    try {
-      const res = await matchmakingApi.join(accessToken)
-      setInQueue(true)
-      setPosition(res.queueSize)
-      setQueueSize(res.queueSize)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to join queue')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handleLeave() {
-    if (!accessToken) return
-    setError('')
-    setLoading(true)
-    try {
-      await matchmakingApi.leave(accessToken)
-      setInQueue(false)
-      setPosition(null)
-      setQueueSize((s) => Math.max(0, s - 1))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to leave queue')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   if (!accessToken) return null
 
@@ -63,47 +27,49 @@ export function Lobby() {
     <div className={style.page}>
       <header className={style.header}>
         <h1>Lobby</h1>
-        <p>Find a match — when two players are in queue, a game is created.</p>
+        <p>Matchmaking via game backend · Join queue, then open a match when assigned.</p>
       </header>
 
-      {error && <p className={style.error}>{error}</p>}
+      {queue.error && <p className={style.error}>{queue.error}</p>}
 
       <div className={style.card}>
-        {inQueue ? (
+        {queue.phase === 'finding' ? (
           <>
-            <p>You are in queue. Position: {position ?? '—'}, Queue size: {queueSize}</p>
-            <p className={style.hint}>Wait for another player. When a match is created, you can be redirected to the game (to be wired).</p>
+            <p>
+              In queue · Size: {queue.queueSize} · Position: {queue.position ?? '—'}
+            </p>
+            <p className={style.hint}>Elapsed {formatElapsed(queue.elapsedSec)} — waiting for match…</p>
             <button
               type="button"
-              onClick={handleLeave}
+              onClick={() => queue.cancelFinding()}
               className={style.secondaryButton}
-              disabled={loading}
+              disabled={queue.isJoining}
             >
               Leave queue
             </button>
           </>
         ) : (
           <>
-            <p>Click to join the matchmaking queue.</p>
+            <p>Join the matchmaking queue. When the server assigns a match id, you’ll be redirected.</p>
             <button
               type="button"
-              onClick={handleJoin}
+              onClick={() => queue.startFinding()}
               className={style.primaryButton}
-              disabled={loading}
+              disabled={queue.isJoining}
             >
-              {loading ? 'Joining…' : 'Find match'}
+              {queue.isJoining ? 'Joining…' : 'Find match'}
             </button>
           </>
         )}
       </div>
 
       <nav className={style.nav}>
+        <Link to="/" className={style.secondaryButton}>
+          Main menu
+        </Link>
         <button type="button" onClick={() => logout()} className={style.secondaryButton}>
           Log out
         </button>
-        <Link to="/game/1" className={style.secondaryButton}>
-          Game (placeholder)
-        </Link>
       </nav>
     </div>
   )

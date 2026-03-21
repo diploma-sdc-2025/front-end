@@ -4,9 +4,10 @@ Starter web app for the [Auto-Chess](https://github.com/diploma-sdc-2025/front-e
 
 ## Features
 
-- **Auth**: Login and register (JWT stored in `localStorage`; refresh token for session).
-- **Lobby**: Join/leave matchmaking queue; queue status (position, size).
-- **Game**: Placeholder page for match view — ready to wire to game-service and battle-service.
+- **Auth**: Calls auth-service `POST /api/auth/login` (and register/refresh/logout). Tokens in `localStorage`.
+- **Matchmaking**: `POST /api/matchmaking/join`, polls `GET /api/matchmaking/status`, `POST /api/matchmaking/leave`. Redirects to `/game/:matchId` when the server returns `matchId` (or `match_id`) on join or status.
+- **Game**: Loads `GET /api/game/matches/:id` and `GET .../state` for the match screen.
+- **Analytics**: Leaderboard (`GET /api/analytics/leaderboard`), per-user stats, live Redis metrics (`GET /api/analytics/live`). Usernames via `GET /api/users/by-ids` (JWT).
 
 ## Prerequisites
 
@@ -26,19 +27,26 @@ cp .env.example .env
 npm run dev
 ```
 
-## Backend URLs
+## Backend URLs & proxy
 
-Configure in `.env` (all optional; defaults shown):
-
-| Variable | Default | Service |
-|----------|---------|---------|
+| Variable | Production default (if unset in `.env`) | Service |
+|----------|----------------------------------------|---------|
 | `VITE_AUTH_URL` | `http://localhost:8081` | Auth |
 | `VITE_MATCHMAKING_URL` | `http://localhost:8082` | Matchmaking |
-| `VITE_GAME_URL` | `http://localhost:8080` | Game |
-| `VITE_BATTLE_URL` | `http://localhost:8083` | Battle |
-| `VITE_ANALYTICS_URL` | `http://localhost:8084` | Analytics |
+| `VITE_GAME_URL` | `http://localhost:8083` | Game (see `deployement/docker-compose.yml`) |
+| `VITE_BATTLE_URL` | `http://localhost:8084` | Battle |
+| `VITE_ANALYTICS_URL` | `http://localhost:8080` | Analytics |
 
-For same-origin API access you can use Vite proxy in `vite.config.ts` (e.g. `/api` → game service).
+**Development:** if `VITE_*` are **empty or omitted**, the app uses **relative** `/api/...` URLs and `vite.config.ts` forwards `/api/auth`, `/api/users`, `/api/matchmaking`, `/api/game`, `/api/battle`, `/api/analytics` to the correct localhost ports (see `.env.example`).
+
+**Production build:** set each `VITE_*` to your deployed API bases (or a single API gateway URL if all routes share one host).
+
+### Matchmaking contract (aligned with `matchmaking-service`)
+
+- `GET /api/matchmaking/status` includes optional **`matchId`** after pairing: when the user is **no longer in the queue**, the service returns a recent game match id (same field names as Java: `matchId`) so the UI can open `/game/:matchId`.
+- `POST /api/matchmaking/join` returns `status`, `userId`, `queueSize`, `joinedAt` (records in this repo).
+
+Run stacks with **`deployement/docker-compose.yml`**: auth **8081**, matchmaking **8082**, game **8083**, battle **8084** (host ports).
 
 ## Scripts
 
@@ -51,8 +59,9 @@ For same-origin API access you can use Vite proxy in `vite.config.ts` (e.g. `/ap
 ```
 src/
   api/          # API clients (auth, matchmaking, game) and config
-  context/      # AuthContext (token, login, logout)
-  pages/        # Home, Login, Register, Lobby, Game (placeholder)
+  hooks/        # useMatchmakingQueue (join + poll + redirect)
+  context/      # AuthContext (real auth-service calls)
+  pages/        # Home, Login, Lobby, Game
   App.tsx       # Router and routes
   main.tsx      # Entry
 ```
@@ -70,3 +79,8 @@ git remote add origin https://github.com/diploma-sdc-2025/front-end.git
 git branch -M main
 git push -u origin main
 ```
+
+## Next steps
+
+- Add **WebSocket** or push notifications for matchmaking if you move beyond HTTP polling.
+- **Game screen**: board/shop from `GET .../board`, battles via battle-service.

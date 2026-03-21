@@ -1,4 +1,5 @@
 import { getAuthApi } from './config.ts'
+import { extractAuthTokens, readApiError } from './client.ts'
 
 /** Backend expects "identifier" (email or username) + password */
 export interface LoginRequest {
@@ -37,15 +38,24 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
   const res = await fetch(getAuthApi(path), init)
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: res.statusText }))
-    throw new Error((err as { message?: string }).message ?? res.statusText)
+    throw new Error(await readApiError(res))
   }
+  if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
 }
 
+function jsonToAuthResponse(data: unknown): AuthResponse {
+  const tokens = extractAuthTokens(data as Record<string, unknown>)
+  return {
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken ?? '',
+  }
+}
+
 export const authApi = {
-  login(data: LoginRequest): Promise<AuthResponse> {
-    return request<AuthResponse>('/api/auth/login', { method: 'POST', body: data })
+  async login(data: LoginRequest): Promise<AuthResponse> {
+    const json = await request<unknown>('/api/auth/login', { method: 'POST', body: data })
+    return jsonToAuthResponse(json)
   },
 
   async register(data: RegisterRequest): Promise<AuthResponse> {
@@ -55,18 +65,34 @@ export const authApi = {
       body: JSON.stringify(data),
     })
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ message: res.statusText }))
-      throw new Error((err as { message?: string }).message ?? res.statusText)
+      throw new Error(await readApiError(res))
     }
-    // Backend returns 200 with no body; log in to get tokens (use email as identifier)
-    return authApi.login({ identifier: data.email, password: data.password })
+    // Backend may return 200 with no body; then obtain tokens via login
+    if (res.status === 204 || res.headers.get('content-length') === '0') {
+      return authApi.login({ identifier: data.email, password: data.password })
+    }
+    const text = await res.text()
+    if (!text.trim()) {
+      return authApi.login({ identifier: data.email, password: data.password })
+    }
+    try {
+      const json = JSON.parse(text) as unknown
+      try {
+        return jsonToAuthResponse(json)
+      } catch {
+        return authApi.login({ identifier: data.email, password: data.password })
+      }
+    } catch {
+      return authApi.login({ identifier: data.email, password: data.password })
+    }
   },
 
-  refresh(data: RefreshRequest): Promise<AuthResponse> {
-    return request<AuthResponse>('/api/auth/refresh', { method: 'POST', body: data })
+  async refresh(data: RefreshRequest): Promise<AuthResponse> {
+    const json = await request<unknown>('/api/auth/refresh', { method: 'POST', body: data })
+    return jsonToAuthResponse(json)
   },
 
-  logout(data: RefreshRequest): Promise<void> {
-    return request<void>('/api/auth/logout', { method: 'POST', body: data })
+  async logout(data: RefreshRequest): Promise<void> {
+    await request<void>('/api/auth/logout', { method: 'POST', body: data })
   },
 }

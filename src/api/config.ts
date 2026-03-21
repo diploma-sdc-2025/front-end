@@ -1,27 +1,46 @@
+import { joinApiUrl } from './client.ts'
+
+/**
+ * Read env URL; empty string = same origin (use Vite `server.proxy` in dev).
+ * In dev, defaults to '' so `/api/...` hits the dev server and is proxied.
+ */
+function envUrl(name: keyof ImportMetaEnv, prodFallback: string): string {
+  const raw = import.meta.env[name]
+  if (raw === '' || raw === undefined) {
+    return import.meta.env.DEV ? '' : prodFallback
+  }
+  return String(raw).replace(/\/$/, '')
+}
+
 /**
  * API base URLs. Override with .env (VITE_*).
  * Backend services can run on different ports or hosts.
  */
 export const config = {
-  authUrl: import.meta.env.VITE_AUTH_URL ?? 'http://localhost:8080',
-  matchmakingUrl: import.meta.env.VITE_MATCHMAKING_URL ?? 'http://localhost:8082',
-  gameUrl: import.meta.env.VITE_GAME_URL ?? 'http://localhost:8080',
-  battleUrl: import.meta.env.VITE_BATTLE_URL ?? 'http://localhost:8083',
-  analyticsUrl: import.meta.env.VITE_ANALYTICS_URL ?? 'http://localhost:8084',
+  authUrl: envUrl('VITE_AUTH_URL', 'http://localhost:8081'),
+  matchmakingUrl: envUrl('VITE_MATCHMAKING_URL', 'http://localhost:8082'),
+  gameUrl: envUrl('VITE_GAME_URL', 'http://localhost:8083'),
+  battleUrl: envUrl('VITE_BATTLE_URL', 'http://localhost:8084'),
+  /** docker-compose maps analytics-service to host port 8080 */
+  analyticsUrl: envUrl('VITE_ANALYTICS_URL', 'http://localhost:8080'),
 } as const
 
 export function getAuthApi(path: string): string {
-  return `${config.authUrl}${path.startsWith('/') ? path : '/' + path}`
+  return joinApiUrl(config.authUrl, path)
 }
 
 export function getMatchmakingApi(path: string): string {
-  return `${config.matchmakingUrl}${path.startsWith('/') ? path : '/' + path}`
+  return joinApiUrl(config.matchmakingUrl, path)
 }
 
 export function getGameApi(path: string): string {
-  return `${config.gameUrl}${path.startsWith('/') ? path : '/' + path}`
+  return joinApiUrl(config.gameUrl, path)
 }
 
 export function getBattleApi(path: string): string {
-  return `${config.battleUrl}${path.startsWith('/') ? path : '/' + path}`
+  return joinApiUrl(config.battleUrl, path)
+}
+
+export function getAnalyticsApi(path: string): string {
+  return joinApiUrl(config.analyticsUrl, path)
 }

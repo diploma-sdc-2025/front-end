@@ -12,7 +12,7 @@ export function Login() {
   const [loading, setLoading] = useState(false)
 
   if (accessToken) {
-    navigate('/lobby', { replace: true })
+    navigate('/', { replace: true })
     return null
   }
 
@@ -22,7 +22,7 @@ export function Login() {
     setLoading(true)
     try {
       await login(emailOrUsername.trim(), password)
-      navigate('/lobby', { replace: true })
+      navigate('/', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
     } finally {
