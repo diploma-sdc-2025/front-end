@@ -5,11 +5,12 @@ import style from './Pages.module.css'
 
 export function Login() {
   const navigate = useNavigate()
-  const { login, accessToken } = useAuth()
+  const { login, accessToken, playAsGuest } = useAuth()
   const [emailOrUsername, setEmailOrUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [guestLoading, setGuestLoading] = useState(false)
 
   if (accessToken) {
     navigate('/', { replace: true })
@@ -31,9 +32,12 @@ export function Login() {
   }
 
   return (
-    <div className={style.page}>
+    <div className={style.authShell}>
       <header className={style.header}>
         <h1>Log in</h1>
+        <p className={style.mutedSmall} style={{ marginTop: 8 }}>
+          Use your email or username and password.
+        </p>
       </header>
       <form onSubmit={handleSubmit} className={style.form}>
         {error && <p className={style.error}>{error}</p>}
@@ -59,8 +63,32 @@ export function Login() {
           {loading ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
+      <button
+        type="button"
+        className={style.authGuestLink}
+        disabled={guestLoading}
+        onClick={() => {
+          setError('')
+          setGuestLoading(true)
+          void (async () => {
+            try {
+              await playAsGuest()
+              navigate('/', { replace: true })
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'Guest session failed')
+            } finally {
+              setGuestLoading(false)
+            }
+          })()
+        }}
+      >
+        {guestLoading ? 'Starting…' : 'Play as guest (no stats)'}
+      </button>
       <p className={style.footer}>
-        No account? <Link to="/register">Register</Link>
+        No account? <Link to="/register">Create one</Link>
+      </p>
+      <p className={style.authBack}>
+        <Link to="/">← Back to home</Link>
       </p>
     </div>
   )

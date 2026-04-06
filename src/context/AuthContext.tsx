@@ -12,6 +12,7 @@ import {
   parseUsernameFromAccessToken,
   setStoredDisplayName,
 } from '../util/displayName.ts'
+import { parseIsGuestFromAccessToken } from '../util/jwtClaims.ts'
 
 const ACCESS_KEY = 'autochess_access_token'
 const REFRESH_KEY = 'autochess_refresh_token'
@@ -22,8 +23,10 @@ interface AuthState {
 }
 
 interface AuthContextValue extends AuthState {
+  isGuest: boolean
   login: (emailOrUsername: string, password: string) => Promise<void>
   register: (username: string, email: string, password: string) => Promise<void>
+  playAsGuest: () => Promise<void>
   logout: () => Promise<void>
   setTokens: (access: string, refresh: string) => void
   getAccessToken: () => string | null
@@ -59,6 +62,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [setTokens],
   )
 
+  const playAsGuest = useCallback(async () => {
+    const res = await authApi.guest()
+    setTokens(res.accessToken, res.refreshToken ?? '')
+    const fromJwt = parseUsernameFromAccessToken(res.accessToken)
+    setStoredDisplayName(fromJwt ?? 'Guest')
+  }, [setTokens])
+
   const register = useCallback(
     async (username: string, email: string, password: string) => {
       const u = username.trim()
@@ -90,16 +100,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState((s) => ({ ...s, accessToken: null }))
   }, [])
 
+  const isGuest = useMemo(() => parseIsGuestFromAccessToken(state.accessToken), [state.accessToken])
+
   const value = useMemo<AuthContextValue>(
     () => ({
       ...state,
+      isGuest,
       login,
       register,
+      playAsGuest,
       logout,
       setTokens,
       getAccessToken,
     }),
-    [state, login, register, logout, setTokens, getAccessToken],
+    [state, isGuest, login, register, playAsGuest, logout, setTokens, getAccessToken],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

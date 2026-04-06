@@ -53,6 +53,12 @@ function jsonToAuthResponse(data: unknown): AuthResponse {
 }
 
 export const authApi = {
+  /** No body; creates a throwaway account and returns tokens (see auth-service POST /api/auth/guest). */
+  async guest(): Promise<AuthResponse> {
+    const json = await request<unknown>('/api/auth/guest', { method: 'POST' })
+    return jsonToAuthResponse(json)
+  },
+
   async login(data: LoginRequest): Promise<AuthResponse> {
     const json = await request<unknown>('/api/auth/login', { method: 'POST', body: data })
     return jsonToAuthResponse(json)

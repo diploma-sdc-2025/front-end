@@ -1,0 +1,113 @@
+.board {
+  width: min(88vmin, 720px);
+  aspect-ratio: 1;
+  border-radius: 14px;
+  overflow: hidden;
+  position: relative;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  width: 100%;
+  height: 100%;
+}
+
+.square {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+}
+
+.square.droppable {
+  cursor: copy;
+}
+
+.light {
+  background: #f2ecdc;
+}
+
+.dark {
+  background: #5a7d4e;
+}
+
+.pieceSprite {
+  width: clamp(50px, 10.4vmin, 78px);
+  height: clamp(50px, 10.4vmin, 78px);
+  object-fit: contain;
+  user-select: none;
+  pointer-events: none;
+}
+
+.pieceDraggable {
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.pieceDraggable:active {
+  cursor: grabbing;
+}
+
+.axisLabel {
+  font-size: clamp(0.5rem, 0.9vmin, 0.72rem);
+  line-height: 1;
+  font-weight: 700;
+  font-family: 'Trebuchet MS', 'Verdana', 'Segoe UI', sans-serif;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
+  user-select: none;
+  pointer-events: none;
+}
+
+.rankLabels {
+  position: absolute;
+  left: 4px;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  display: grid;
+  grid-template-rows: repeat(8, 1fr);
+  align-items: start;
+  justify-items: start;
+  pointer-events: none;
+}
+
+/* Offset labels inside each row without changing row distribution */
+.rankLabels .axisLabel {
+  transform: translateY(10px);
+}
+
+.fileLabels {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 2px;
+  height: 14px;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  align-items: end;
+  justify-items: end;
+  padding-right: 5px;
+  pointer-events: none;
+}
+
+/* Offset letters inside each column without changing grid distribution */
+.fileLabels .axisLabel {
+  transform: translateX(-5px);
+}
+
+.axisOnLight {
+  color: rgba(42, 56, 37, 0.88);
+}
+
+.axisOnDark {
+  color: rgba(245, 248, 236, 0.92);
+}

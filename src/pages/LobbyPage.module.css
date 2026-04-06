@@ -1,0 +1,83 @@
+.page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(ellipse 85% 55% at 50% 35%, rgba(0, 0, 0, 0.4), transparent 60%),
+    var(--color-bg);
+}
+
+.boardSlot {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 8px
+    max(12px, env(safe-area-inset-left));
+  min-height: 0;
+}
+
+.hud {
+  flex-shrink: 0;
+  padding: 0 16px max(20px, env(safe-area-inset-bottom));
+  z-index: 2;
+}
+
+.hudInner {
+  max-width: 440px;
+  margin: 0 auto;
+  border-radius: 18px;
+  padding: 18px 20px;
+  background: rgba(12, 14, 12, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+.hudTitle {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.hudSub {
+  margin: 0 0 14px;
+  font-size: 0.88rem;
+  color: var(--color-muted);
+  line-height: 1.4;
+}
+
+.hudActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.hudNav {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.findingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.timer {
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.1rem;
+  color: var(--color-primary);
+}

@@ -9,16 +9,12 @@ import { parseUserIdFromAccessToken } from '../util/jwtClaims.ts'
 import { analyticsApi } from '../api/analytics.ts'
 import { fetchUsersByIds } from '../api/users.ts'
 
-function formatElapsed(totalSec: number) {
-  const m = Math.floor(totalSec / 60)
-  const s = totalSec % 60
-  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-}
-
 export function Home() {
   const navigate = useNavigate()
-  const { accessToken, isReady, logout } = useAuth()
+  const { accessToken, isReady, logout, isGuest, playAsGuest } = useAuth()
   const queue = useMatchmakingQueue(accessToken, navigate)
+  const [guestLandingLoading, setGuestLandingLoading] = useState(false)
+  const [guestLandingError, setGuestLandingError] = useState('')
 
   type Tab = 'profile' | 'leaderboard' | 'settings' | 'statistics'
   const [tab, setTab] = useState<Tab>('profile')
@@ -45,7 +41,13 @@ export function Home() {
   const myUserId = useMemo(() => parseUserIdFromAccessToken(accessToken), [accessToken])
 
   useEffect(() => {
-    if (!accessToken || myUserId == null) {
+    if (isGuest && (tab === 'leaderboard' || tab === 'statistics')) {
+      setTab('profile')
+    }
+  }, [isGuest, tab])
+
+  useEffect(() => {
+    if (!accessToken || myUserId == null || isGuest) {
       setMyStats(null)
       return
     }
@@ -70,10 +72,10 @@ export function Home() {
     return () => {
       cancelled = true
     }
-  }, [accessToken, myUserId])
+  }, [accessToken, myUserId, isGuest])
 
   useEffect(() => {
-    if (!accessToken || tab !== 'leaderboard') return
+    if (!accessToken || tab !== 'leaderboard' || isGuest) return
     let cancelled = false
     setLeaderboardLoading(true)
     setLeaderboardError(null)
@@ -105,7 +107,7 @@ export function Home() {
     return () => {
       cancelled = true
     }
-  }, [accessToken, tab, leaderboardRefresh])
+  }, [accessToken, tab, leaderboardRefresh, isGuest])
 
   if (!isReady) return null
 
@@ -117,29 +119,45 @@ export function Home() {
             <div className={menuStyle.headerIntro}>
               <div className={menuStyle.headerText}>
                 <span className={menuStyle.brandMark}>Auto-Chess</span>
-                <p className={menuStyle.welcome}>Welcome back, {playerName}!</p>
-                <p className={menuStyle.subWelcome}>Your next battle is one click away.</p>
+                <p className={menuStyle.welcome}>
+                  {isGuest ? `Hey, ${playerName}!` : `Welcome back, ${playerName}!`}
+                </p>
+                <p className={menuStyle.subWelcome}>
+                  {isGuest
+                    ? 'Guest mode — play matchmaking; create an account to track stats and rankings.'
+                    : 'Your next battle is one click away.'}
+                </p>
               </div>
-              <div className={menuStyle.topStatsRow}>
-                <div className={menuStyle.statTile}>
-                  <div className={menuStyle.statValue}>
-                    {statsLoading ? '…' : myStats != null ? myStats.totalEvents.toLocaleString() : '—'}
+              {!isGuest ? (
+                <div className={menuStyle.topStatsRow}>
+                  <div className={menuStyle.statTile}>
+                    <div className={menuStyle.statValue}>
+                      {statsLoading ? '…' : myStats != null ? myStats.totalEvents.toLocaleString() : '—'}
+                    </div>
+                    <div className={menuStyle.statLabel}>ACTIVITY</div>
                   </div>
-                  <div className={menuStyle.statLabel}>ACTIVITY</div>
-                </div>
-                <div className={menuStyle.statTile}>
-                  <div className={menuStyle.statValue}>
-                    {statsLoading ? '…' : myStats != null ? myStats.queueJoins.toLocaleString() : '—'}
+                  <div className={menuStyle.statTile}>
+                    <div className={menuStyle.statValue}>
+                      {statsLoading ? '…' : myStats != null ? myStats.queueJoins.toLocaleString() : '—'}
+                    </div>
+                    <div className={menuStyle.statLabel}>QUEUE JOINS</div>
                   </div>
-                  <div className={menuStyle.statLabel}>QUEUE JOINS</div>
-                </div>
-                <div className={menuStyle.statTile}>
-                  <div className={menuStyle.statValue}>
-                    {statsLoading ? '…' : myStats != null ? myStats.queueLeaves.toLocaleString() : '—'}
+                  <div className={menuStyle.statTile}>
+                    <div className={menuStyle.statValue}>
+                      {statsLoading ? '…' : myStats != null ? myStats.queueLeaves.toLocaleString() : '—'}
+                    </div>
+                    <div className={menuStyle.statLabel}>QUEUE LEAVES</div>
                   </div>
-                  <div className={menuStyle.statLabel}>QUEUE LEAVES</div>
                 </div>
-              </div>
+              ) : (
+                <div className={menuStyle.guestStatsBanner}>
+                  Guest — no saved stats or leaderboard.{' '}
+                  <Link to="/register" className={menuStyle.guestInlineLink}>
+                    Register
+                  </Link>{' '}
+                  to unlock them.
+                </div>
+              )}
             </div>
           </header>
 
@@ -157,16 +175,18 @@ export function Home() {
                 </div>
               </button>
 
-              <button
-                type="button"
-                className={`${menuStyle.tabButton} ${tab === 'leaderboard' ? menuStyle.tabButtonActive : ''}`}
-                onClick={() => setTab('leaderboard')}
-              >
-                <div className={menuStyle.tabIconRow}>
-                  <span className={menuStyle.tabIcon}>🏆</span>
-                  <span className={menuStyle.tabTitle}>Leaderboard</span>
-                </div>
-              </button>
+              {!isGuest && (
+                <button
+                  type="button"
+                  className={`${menuStyle.tabButton} ${tab === 'leaderboard' ? menuStyle.tabButtonActive : ''}`}
+                  onClick={() => setTab('leaderboard')}
+                >
+                  <div className={menuStyle.tabIconRow}>
+                    <span className={menuStyle.tabIcon}>🏆</span>
+                    <span className={menuStyle.tabTitle}>Leaderboard</span>
+                  </div>
+                </button>
+              )}
 
               <button
                 type="button"
@@ -179,16 +199,18 @@ export function Home() {
                 </div>
               </button>
 
-              <button
-                type="button"
-                className={`${menuStyle.tabButton} ${tab === 'statistics' ? menuStyle.tabButtonActive : ''}`}
-                onClick={() => setTab('statistics')}
-              >
-                <div className={menuStyle.tabIconRow}>
-                  <span className={menuStyle.tabIcon}>📈</span>
-                  <span className={menuStyle.tabTitle}>Statistics</span>
-                </div>
-              </button>
+              {!isGuest && (
+                <button
+                  type="button"
+                  className={`${menuStyle.tabButton} ${tab === 'statistics' ? menuStyle.tabButtonActive : ''}`}
+                  onClick={() => setTab('statistics')}
+                >
+                  <div className={menuStyle.tabIconRow}>
+                    <span className={menuStyle.tabIcon}>📈</span>
+                    <span className={menuStyle.tabTitle}>Statistics</span>
+                  </div>
+                </button>
+              )}
             </nav>
 
             <main className={menuStyle.menuMain}>
@@ -196,43 +218,71 @@ export function Home() {
               {tab === 'profile' && (
                 <>
                   <h2 className={menuStyle.sectionTitle}>PROFILE</h2>
-                  <p className={menuStyle.sectionSubtle}>Your account and matchmaking summary.</p>
-                  <div className={menuStyle.list}>
-                    <div className={menuStyle.listRow}>
-                      <span className={menuStyle.badgeDot}>♞</span>
-                      <div className={menuStyle.rowMain}>
-                        <div className={menuStyle.rowTitle}>{playerName}</div>
-                        <div className={menuStyle.rowSub}>
-                          User ID: {myUserId != null ? String(myUserId) : '—'}
+                  {isGuest ? (
+                    <>
+                      <p className={menuStyle.sectionSubtle}>
+                        You’re in guest mode. Matchmaking works; stats and rankings stay off until you register.
+                      </p>
+                      <div className={menuStyle.list}>
+                        <div className={menuStyle.listRow}>
+                          <span className={menuStyle.badgeDot}>👤</span>
+                          <div className={menuStyle.rowMain}>
+                            <div className={menuStyle.rowTitle}>{playerName}</div>
+                            <div className={menuStyle.rowSub}>Temporary session</div>
+                          </div>
+                          <div className={menuStyle.rowValue} />
                         </div>
                       </div>
-                      <div className={menuStyle.rowValue}>{myUserId != null ? `#${myUserId}` : '—'}</div>
-                    </div>
-                    <div className={menuStyle.listRow}>
-                      <span className={menuStyle.badgeDot}>♗</span>
-                      <div className={menuStyle.rowMain}>
-                        <div className={menuStyle.rowTitle}>Matchmaking</div>
-                        <div className={menuStyle.rowSub}>Queue joins and leaves</div>
+                      <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <Link to="/register" className={style.primaryButton} style={{ textAlign: 'center' }}>
+                          Create free account
+                        </Link>
+                        <Link to="/login" className={style.secondaryButton} style={{ textAlign: 'center' }}>
+                          I already have an account
+                        </Link>
                       </div>
-                      <div className={menuStyle.rowValue}>
-                        {statsLoading
-                          ? '…'
-                          : myStats != null
-                            ? `${myStats.queueJoins} joins · ${myStats.queueLeaves} leaves`
-                            : '—'}
+                    </>
+                  ) : (
+                    <>
+                      <p className={menuStyle.sectionSubtle}>Your account and matchmaking summary.</p>
+                      <div className={menuStyle.list}>
+                        <div className={menuStyle.listRow}>
+                          <span className={menuStyle.badgeDot}>♞</span>
+                          <div className={menuStyle.rowMain}>
+                            <div className={menuStyle.rowTitle}>{playerName}</div>
+                            <div className={menuStyle.rowSub}>
+                              User ID: {myUserId != null ? String(myUserId) : '—'}
+                            </div>
+                          </div>
+                          <div className={menuStyle.rowValue}>{myUserId != null ? `#${myUserId}` : '—'}</div>
+                        </div>
+                        <div className={menuStyle.listRow}>
+                          <span className={menuStyle.badgeDot}>♗</span>
+                          <div className={menuStyle.rowMain}>
+                            <div className={menuStyle.rowTitle}>Matchmaking</div>
+                            <div className={menuStyle.rowSub}>Queue joins and leaves</div>
+                          </div>
+                          <div className={menuStyle.rowValue}>
+                            {statsLoading
+                              ? '…'
+                              : myStats != null
+                                ? `${myStats.queueJoins} joins · ${myStats.queueLeaves} leaves`
+                                : '—'}
+                          </div>
+                        </div>
+                        <div className={menuStyle.listRow}>
+                          <span className={menuStyle.badgeDot}>📊</span>
+                          <div className={menuStyle.rowMain}>
+                            <div className={menuStyle.rowTitle}>Total activity</div>
+                            <div className={menuStyle.rowSub}>Actions on your account</div>
+                          </div>
+                          <div className={menuStyle.rowValue}>
+                            {statsLoading ? '…' : myStats != null ? myStats.totalEvents.toLocaleString() : '—'}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <div className={menuStyle.listRow}>
-                      <span className={menuStyle.badgeDot}>📊</span>
-                      <div className={menuStyle.rowMain}>
-                        <div className={menuStyle.rowTitle}>Total activity</div>
-                        <div className={menuStyle.rowSub}>Actions on your account</div>
-                      </div>
-                      <div className={menuStyle.rowValue}>
-                        {statsLoading ? '…' : myStats != null ? myStats.totalEvents.toLocaleString() : '—'}
-                      </div>
-                    </div>
-                  </div>
+                    </>
+                  )}
                 </>
               )}
 
@@ -286,6 +336,11 @@ export function Home() {
                     App preferences are not synced to a server API yet. Use Log out to end your session.
                   </p>
                   <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {isGuest && (
+                      <Link to="/register" className={style.primaryButton} style={{ width: '100%', textAlign: 'center' }}>
+                        Create account
+                      </Link>
+                    )}
                     <button type="button" className={style.secondaryButton} style={{ width: '100%' }} onClick={() => logout()}>
                       Log out
                     </button>
@@ -341,20 +396,10 @@ export function Home() {
                 {queue.error}
               </p>
             )}
-
-            {queue.phase === 'finding' && (
-                <div className={menuStyle.findingOverlay}>
-                  <div>
-                    <div className={menuStyle.findingTitle}>Finding match…</div>
-                    <div className={menuStyle.sectionSubtle}>
-                      Queue: {queue.queueSize} · Position: {queue.position ?? '—'}
-                    </div>
-                  </div>
-                  <div className={menuStyle.findingTimer}>{formatElapsed(queue.elapsedSec)}</div>
-                  <button type="button" className={menuStyle.smallLinkLikeButton} onClick={() => queue.cancelFinding()}>
-                    Cancel
-                  </button>
-                </div>
+              {queue.phase === 'finding' && (
+                <p className={menuStyle.sectionSubtle} style={{ margin: 0, textAlign: 'center' }}>
+                  Finding match... Queue: {queue.queueSize} · Position: {queue.position ?? '—'}
+                </p>
               )}
 
               <div className={menuStyle.bottomActions}>
@@ -366,6 +411,11 @@ export function Home() {
                 >
                   {queue.phase === 'idle' ? (queue.isJoining ? 'Joining…' : 'Play') : 'Searching…'}
                 </button>
+                {queue.phase === 'finding' && (
+                  <button type="button" className={style.secondaryButton} onClick={() => queue.cancelFinding()}>
+                    Cancel search
+                  </button>
+                )}
               </div>
 
               <div className={menuStyle.footerRow}>
@@ -381,19 +431,44 @@ export function Home() {
   }
 
   return (
-    <div className={style.page}>
-      <header className={style.header}>
+    <div className={style.authLanding}>
+      <div className={style.authLandingCard}>
         <h1>Auto-Chess</h1>
-        <p>Chess-based auto-battler</p>
-      </header>
-      <nav className={style.nav}>
-        <Link to="/login" className={style.primaryButton}>
-          Log in
-        </Link>
-        <Link to="/register" className={style.secondaryButton}>
-          Register
-        </Link>
-      </nav>
+        <p className={style.authLandingLead}>Chess auto-battler — play right away or sign in to keep stats.</p>
+        {guestLandingError && <p className={style.error}>{guestLandingError}</p>}
+        <button
+          type="button"
+          className={style.guestPlayButton}
+          disabled={guestLandingLoading}
+          onClick={() => {
+            setGuestLandingError('')
+            setGuestLandingLoading(true)
+            void (async () => {
+              try {
+                await playAsGuest()
+              } catch (e) {
+                setGuestLandingError(e instanceof Error ? e.message : 'Could not start guest session')
+              } finally {
+                setGuestLandingLoading(false)
+              }
+            })()
+          }}
+        >
+          {guestLandingLoading ? 'Starting…' : 'Play as guest'}
+        </button>
+        <p className={style.authLandingHint}>
+          Guests can queue for matches. Stats, leaderboard, and rankings need a free account.
+        </p>
+        <div className={style.authLandingDivider}>or</div>
+        <div className={style.authLandingLinks}>
+          <Link to="/login" className={style.secondaryButton}>
+            Log in
+          </Link>
+          <Link to="/register" className={style.primaryButton}>
+            Create account
+          </Link>
+        </div>
+      </div>
     </div>
   )
 }

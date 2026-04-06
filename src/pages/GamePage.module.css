@@ -1,0 +1,375 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(circle at 50% 20%, #1f2a22 0%, #0e1310 65%, #090c09 100%);
+}
+
+.boardArea {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 16px 8px;
+}
+
+.boardWithHp {
+  display: flex;
+  align-items: center;
+}
+
+.boardShell {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.leftBars {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.boardColumn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.hpPanel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 44px;
+}
+
+.hpValue {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #f4f7ef;
+  line-height: 1;
+  order: 2;
+}
+
+.hpTrack {
+  width: 26px;
+  height: min(74vmin, 620px);
+  border-radius: 999px;
+  padding: 2px;
+  border: 1px solid rgba(231, 240, 224, 0.42);
+  background: rgba(7, 10, 8, 0.72);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.hpFill {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(180deg, #ffffff 0%, #f5f5f5 100%);
+}
+
+.moneyPanel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 46px;
+}
+
+.moneyValue {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #f4f7ef;
+  line-height: 1;
+  order: 2;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.moneyTrack {
+  width: 30px;
+  height: min(74vmin, 620px);
+  border-radius: 999px;
+  padding: 2px;
+  border: 1px solid rgba(233, 219, 164, 0.5);
+  background: rgba(18, 15, 8, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.moneyFill {
+  height: 100%;
+  border-radius: inherit;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 3px;
+  padding: 6px 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.moneyPawn {
+  font-size: 0.9rem;
+  line-height: 1;
+  color: #f6d77e;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
+}
+
+.moneyPawnImage {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  flex-shrink: 0;
+  transition: opacity 0.2s ease;
+}
+
+.moneyPawnImageFilled {
+  opacity: 1;
+}
+
+.moneyPawnImageEmpty {
+  opacity: 0.22;
+}
+
+.boardSlot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.boardCompact {
+  width: min(74vmin, 620px);
+}
+
+.bench {
+  width: min(74vmin, 620px);
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(112, 151, 96, 0.45);
+  background: rgba(10, 12, 10, 0.7);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.benchSlot {
+  height: clamp(34px, 5.2vmin, 46px);
+  border-radius: 8px;
+  border: 1px dashed rgba(214, 227, 203, 0.32);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(0, 0, 0, 0.12)),
+    rgba(23, 29, 23, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.benchPiece {
+  width: clamp(26px, 4vmin, 36px);
+  height: clamp(26px, 4vmin, 36px);
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.hudInner {
+  width: min(64vmin, 520px);
+  border-radius: 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(112, 151, 96, 0.45);
+  background: rgba(11, 13, 11, 0.88);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-direction: column;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #f3f5ec;
+}
+
+.meta {
+  margin: 6px 0 0;
+  color: rgba(235, 240, 227, 0.84);
+  font-size: 0.92rem;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.shop {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.rightActions {
+  min-height: min(74vmin, 620px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.matchButtons {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.resignButton {
+  border: 1px solid rgba(177, 196, 165, 0.5);
+  background: rgba(14, 18, 14, 0.8);
+  color: #f2f6ed;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-width: 96px;
+  text-align: center;
+}
+
+.resignButton:hover {
+  background: rgba(18, 23, 18, 0.86);
+}
+
+.drawButton {
+  border: 1px solid rgba(177, 196, 165, 0.5);
+  background: rgba(14, 18, 14, 0.8);
+  color: #f2f6ed;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-width: 96px;
+  text-align: center;
+}
+
+.drawButton:hover {
+  background: rgba(18, 23, 18, 0.86);
+}
+
+.roundTimer {
+  min-width: 96px;
+  border-radius: 10px;
+  border: 1px solid rgba(177, 196, 165, 0.5);
+  background: rgba(14, 18, 14, 0.8);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.roundTimerLabel {
+  font-size: 0.65rem;
+  color: rgba(230, 236, 223, 0.8);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  line-height: 1;
+}
+
+.roundTimerValue {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #f2f6ed;
+  line-height: 1;
+}
+
+.shopItem {
+  border: 1px solid rgba(177, 196, 165, 0.5);
+  background: rgba(14, 18, 14, 0.8);
+  color: #f2f6ed;
+  border-radius: 10px;
+  padding: 8px 10px;
+  min-width: 88px;
+  min-height: 78px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  cursor: pointer;
+}
+
+.shopItem:hover {
+  background: rgba(18, 23, 18, 0.86);
+}
+
+.shopItem:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  filter: grayscale(0.35);
+}
+
+.shopPieceImage {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+
+@media (max-width: 900px) {
+  .boardShell {
+    gap: 10px;
+  }
+
+  .leftBars {
+    gap: 5px;
+  }
+
+  .hpPanel {
+    width: 38px;
+  }
+
+  .hpTrack {
+    width: 22px;
+  }
+
+  .moneyPanel {
+    width: 40px;
+  }
+
+  .moneyTrack {
+    width: 24px;
+  }
+
+  .shopItem {
+    min-width: 78px;
+    min-height: 70px;
+  }
+
+  .rightActions {
+    min-height: min(74vmin, 620px);
+  }
+
+  .matchButtons {
+    width: auto;
+  }
+}

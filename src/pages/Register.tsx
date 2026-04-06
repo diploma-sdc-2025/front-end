@@ -5,12 +5,13 @@ import style from './Pages.module.css'
 
 export function Register() {
   const navigate = useNavigate()
-  const { register, accessToken } = useAuth()
+  const { register, accessToken, playAsGuest } = useAuth()
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [guestLoading, setGuestLoading] = useState(false)
 
   useEffect(() => {
     if (accessToken) {
@@ -35,10 +36,12 @@ export function Register() {
   }
 
   return (
-    <div className={style.page}>
+    <div className={style.authShell}>
       <header className={style.header}>
         <h1>Create account</h1>
-        <p>Sign up with email, username, and password (min. 8 characters).</p>
+        <p className={style.mutedSmall} style={{ marginTop: 8 }}>
+          Email, username, and password (min. 8 characters).
+        </p>
       </header>
       <form onSubmit={handleSubmit} className={style.form}>
         {error && <p className={style.error}>{error}</p>}
@@ -77,8 +80,32 @@ export function Register() {
           {loading ? 'Creating account…' : 'Register'}
         </button>
       </form>
+      <button
+        type="button"
+        className={style.authGuestLink}
+        disabled={guestLoading}
+        onClick={() => {
+          setError('')
+          setGuestLoading(true)
+          void (async () => {
+            try {
+              await playAsGuest()
+              navigate('/', { replace: true })
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'Guest session failed')
+            } finally {
+              setGuestLoading(false)
+            }
+          })()
+        }}
+      >
+        {guestLoading ? 'Starting…' : 'Try as guest first (no stats)'}
+      </button>
       <p className={style.footer}>
         Already have an account? <Link to="/login">Log in</Link>
+      </p>
+      <p className={style.authBack}>
+        <Link to="/">← Back to home</Link>
       </p>
     </div>
   )
