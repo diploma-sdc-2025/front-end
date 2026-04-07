@@ -203,8 +203,8 @@
 
 .authLandingCard {
   width: 100%;
-  max-width: 440px;
-  padding: 36px 32px;
+  max-width: 560px;
+  padding: 48px 40px;
   border-radius: 22px;
   border: 1px solid var(--color-border);
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.02));
@@ -214,7 +214,7 @@
 
 .authLandingCard h1 {
   margin: 0;
-  font-size: 1.9rem;
+  font-size: 2.4rem;
   letter-spacing: 0.02em;
   color: var(--color-text);
 }
@@ -229,10 +229,10 @@
 .guestPlayButton {
   margin-top: 28px;
   width: 100%;
-  padding: 16px 20px;
-  font-size: 1.08rem;
+  padding: 18px 20px;
+  font-size: 1.2rem;
   font-weight: 900;
-  color: #0b0f14;
+  color: #ffffff;
   background: linear-gradient(180deg, var(--color-primary-2), var(--color-primary));
   border: none;
   border-radius: 14px;
@@ -277,12 +277,26 @@
 .authLandingLinks {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .authLandingLinks a {
   width: 100%;
   box-sizing: border-box;
+  min-height: 56px;
+  font-size: 1.08rem;
+}
+
+.authLandingLinks .primaryButton {
+  color: #ffffff;
+  background: linear-gradient(180deg, var(--color-primary-2), var(--color-primary));
+  border: none;
+}
+
+.authLandingLinks .secondaryButton {
+  color: var(--color-primary-2);
+  background: transparent;
+  border: 1px solid rgba(var(--color-primary-2-rgb), 0.55);
 }
 
 .authShell {

@@ -434,7 +434,6 @@ export function Home() {
     <div className={style.authLanding}>
       <div className={style.authLandingCard}>
         <h1>Auto-Chess</h1>
-        <p className={style.authLandingLead}>Chess auto-battler — play right away or sign in to keep stats.</p>
         {guestLandingError && <p className={style.error}>{guestLandingError}</p>}
         <button
           type="button"
@@ -456,9 +455,6 @@ export function Home() {
         >
           {guestLandingLoading ? 'Starting…' : 'Play as guest'}
         </button>
-        <p className={style.authLandingHint}>
-          Guests can queue for matches. Stats, leaderboard, and rankings need a free account.
-        </p>
         <div className={style.authLandingDivider}>or</div>
         <div className={style.authLandingLinks}>
           <Link to="/login" className={style.secondaryButton}>
