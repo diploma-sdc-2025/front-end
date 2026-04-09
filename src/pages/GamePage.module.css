@@ -21,14 +21,163 @@
 
 .boardShell {
   display: flex;
-  align-items: center;
+  /* Top-align: middle column includes board + move list; center would vertically center bar/Phase in that full height. */
+  align-items: flex-start;
   gap: 14px;
+}
+
+/* Exact same width as the chess .board outer box so the move strip never sticks out past the board. */
+.boardMiddleColumn {
+  --board-outer: calc(var(--chess-board-inner-compact) + var(--chess-board-label-gutter, 18px));
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  flex: 0 0 auto;
+  width: var(--board-outer);
+  max-width: min(var(--board-outer), calc(100vw - 32px));
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .leftBars {
   display: flex;
   align-items: flex-start;
   gap: 6px;
+}
+
+.leftBarsBattle {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Match eval bar height: board outer (grid + rank/file gutter). */
+.leftBarsBattle .hpTrack {
+  height: calc(var(--chess-board-inner-compact) + var(--chess-board-label-gutter, 18px));
+}
+
+.hpBattleCluster {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.hpBattleValue {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #f4f7ef;
+  line-height: 1;
+}
+
+.hpAndEvalRow {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.hpPanelBattle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  width: 44px;
+}
+
+/* Keeps board alignment stable while battle evaluation loads (no eval bar yet). */
+.leftBarsPlaceholder {
+  flex-shrink: 0;
+  width: 80px;
+  height: calc(var(--chess-board-inner-compact) + var(--chess-board-label-gutter, 18px));
+}
+
+/* Chess.com–style eval bar: white (top) vs black (bottom), same height as board inner grid. */
+.evalBarWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.evalBarTrack {
+  position: relative;
+  width: 28px;
+  /* Match .board outer height (grid + rank/file gutter), not inner grid only. */
+  height: calc(var(--chess-board-inner-compact) + var(--chess-board-label-gutter, 18px));
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(40, 44, 48, 0.95);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+.evalBarWhite {
+  width: 100%;
+  flex-shrink: 0;
+  background: linear-gradient(180deg, #f7f7f7 0%, #e8e8e8 100%);
+}
+
+.evalBarBlack {
+  width: 100%;
+  flex-shrink: 0;
+  background: linear-gradient(180deg, #2a2e33 0%, #1a1d21 100%);
+}
+
+.evalBarScore {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.evalBarScoreTop {
+  top: 6px;
+}
+
+.evalBarScoreBottom {
+  bottom: 6px;
+}
+
+.evalBarScoreCenter {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.evalBarScoreInner {
+  font-size: 0.68rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.evalBarScoreTop .evalBarScoreInner {
+  color: #1a1d21;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.evalBarScoreBottom .evalBarScoreInner {
+  color: #f4f4f4;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+}
+
+.evalBarScoreCenter .evalBarScoreInner {
+  color: #e8ebe4;
+  background: rgba(0, 0, 0, 0.45);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
 .boardColumn {
@@ -56,8 +205,11 @@
 }
 
 .hpTrack {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
   width: 26px;
-  height: min(74vmin, 620px);
+  height: var(--chess-board-inner-compact);
   border-radius: 999px;
   padding: 2px;
   border: 1px solid rgba(231, 240, 224, 0.42);
@@ -65,13 +217,15 @@
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.12),
     0 4px 12px rgba(0, 0, 0, 0.35);
+  box-sizing: border-box;
 }
 
 .hpFill {
   width: 100%;
-  height: 100%;
+  min-height: 0;
   border-radius: inherit;
   background: linear-gradient(180deg, #ffffff 0%, #f5f5f5 100%);
+  transition: height 0.35s ease-out;
 }
 
 .moneyPanel {
@@ -95,7 +249,7 @@
 
 .moneyTrack {
   width: 30px;
-  height: min(74vmin, 620px);
+  height: var(--chess-board-inner-compact);
   border-radius: 999px;
   padding: 2px;
   border: 1px solid rgba(233, 219, 164, 0.5);
@@ -143,16 +297,85 @@
 
 .boardSlot {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 12px;
 }
 
-.boardCompact {
-  width: min(74vmin, 620px);
+.battleSceneHeader {
+  width: min(100%, calc(var(--chess-board-inner-compact) + var(--chess-board-label-gutter, 18px)));
+  margin: 0;
+  padding: 0 2px;
+  text-align: center;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: rgba(220, 228, 210, 0.92);
+  letter-spacing: 0.02em;
+}
+
+.battlePvPanel {
+  width: 100%;
+  min-width: 0;
+  margin-top: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(112, 151, 96, 0.4);
+  background: rgba(8, 11, 9, 0.88);
+  box-sizing: border-box;
+}
+
+.battlePvList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.battlePvItem {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 0.82rem;
+  color: rgba(180, 190, 170, 0.75);
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.battlePvItemPlayed {
+  color: rgba(232, 240, 222, 0.95);
+  border-color: rgba(112, 151, 96, 0.35);
+  background: rgba(22, 32, 26, 0.65);
+}
+
+.battlePvItemActive {
+  border-color: rgba(196, 220, 140, 0.65);
+  box-shadow: 0 0 0 1px rgba(196, 220, 140, 0.2);
+}
+
+.battlePvIndex {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+.battlePvUci {
+  font-family: ui-monospace, 'Cascadia Code', monospace;
+  letter-spacing: 0.03em;
 }
 
 .bench {
-  width: min(74vmin, 620px);
+  /* Match LobbyChessBoard outer width (inner grid + rank gutter). */
+  width: calc(var(--chess-board-inner-compact) + var(--chess-board-label-gutter, 18px));
   display: grid;
   grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 8px;
@@ -164,7 +387,7 @@
 }
 
 .benchSlot {
-  height: clamp(34px, 5.2vmin, 46px);
+  height: clamp(40px, 6vmin, 54px);
   border-radius: 8px;
   border: 1px dashed rgba(214, 227, 203, 0.32);
   background:
@@ -176,11 +399,19 @@
 }
 
 .benchPiece {
-  width: clamp(26px, 4vmin, 36px);
-  height: clamp(26px, 4vmin, 36px);
+  width: clamp(30px, 4.8vmin, 44px);
+  height: clamp(30px, 4.8vmin, 44px);
   object-fit: contain;
-  pointer-events: none;
   user-select: none;
+}
+
+.benchPieceDraggable {
+  cursor: grab;
+  touch-action: none;
+}
+
+.benchPieceDraggable:active {
+  cursor: grabbing;
 }
 
 .hudInner {
@@ -215,8 +446,19 @@
   gap: 10px;
 }
 
-.shop {
+.shopSellRow {
   width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.shop {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -225,8 +467,62 @@
   justify-content: center;
 }
 
+.sellBin {
+  flex-shrink: 0;
+  width: 72px;
+  height: 72px;
+  border-radius: 14px;
+  border: 2px dashed rgba(214, 227, 203, 0.28);
+  background: rgba(26, 20, 22, 0.72);
+  color: rgba(232, 238, 224, 0.55);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: default;
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease,
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease;
+  opacity: 0.14;
+  transform: scale(0.86);
+  pointer-events: none;
+}
+
+.sellBinVisible {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+  color: rgba(236, 242, 228, 0.88);
+  border-color: rgba(180, 200, 165, 0.45);
+}
+
+.sellBinVisible.sellBinOver {
+  border-color: rgba(255, 150, 130, 0.9);
+  background: rgba(48, 26, 30, 0.92);
+  color: #ffe8e4;
+}
+
+.sellBinIcon {
+  width: 28px;
+  height: 28px;
+  pointer-events: none;
+}
+
+.sellBinLabel {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  pointer-events: none;
+  line-height: 1;
+}
+
 .rightActions {
-  min-height: min(74vmin, 620px);
+  min-height: calc(var(--chess-board-inner-compact) + var(--chess-board-label-gutter, 18px));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -330,8 +626,8 @@
 }
 
 .shopPieceImage {
-  width: 48px;
-  height: 48px;
+  width: 54px;
+  height: 54px;
   object-fit: contain;
 }
 
@@ -348,8 +644,20 @@
     width: 38px;
   }
 
+  .hpPanelBattle {
+    width: 38px;
+  }
+
   .hpTrack {
     width: 22px;
+  }
+
+  .evalBarTrack {
+    width: 22px;
+  }
+
+  .leftBarsPlaceholder {
+    width: 65px;
   }
 
   .moneyPanel {
@@ -366,7 +674,7 @@
   }
 
   .rightActions {
-    min-height: min(74vmin, 620px);
+    min-height: calc(var(--chess-board-inner-compact) + var(--chess-board-label-gutter, 18px));
   }
 
   .matchButtons {

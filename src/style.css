@@ -1,4 +1,13 @@
 :root {
+  /* LobbyChessBoard: space for rank/file labels outside the grid */
+  --chess-board-label-gutter: 18px;
+  /* Fallbacks when round() is unsupported; next lines override when supported. */
+  --chess-board-inner: min(92vmin, 760px);
+  --chess-board-inner-compact: min(82vmin, 700px);
+  /* Snap to 8px so 8 columns share identical widths (avoids stripy uneven columns). */
+  --chess-board-inner: round(down, min(92vmin, 760px), 8px);
+  --chess-board-inner-compact: round(down, min(82vmin, 700px), 8px);
+
   font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   line-height: 1.5;
   font-weight: 400;
