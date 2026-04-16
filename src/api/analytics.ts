@@ -14,6 +14,18 @@ export interface PlayerStats {
   totalEvents: number
   queueJoins: number
   queueLeaves: number
+  matchesPlayed: number
+  wins: number
+  losses: number
+  winRatePercent: number | null
+  currentRating: number | null
+  recentMatches: Array<{
+    opponent: string
+    result: 'W' | 'L' | 'D' | '-'
+    ratingDelta: number | null
+    playedAt: string | null
+    finalFen: string | null
+  }>
 }
 
 export interface LiveAnalyticsMetrics {
@@ -37,11 +49,61 @@ function normalizeLeaderboardRow(raw: Record<string, unknown>): LeaderboardRow {
 
 function normalizePlayerStats(raw: Record<string, unknown>): PlayerStats {
   const userId = Number(raw.userId ?? raw.user_id)
+  const matchesPlayed = Number(raw.matchesPlayed ?? raw.matches_played ?? 0) || 0
+  const wins = Number(raw.wins ?? raw.win_count ?? 0) || 0
+  const losses = Number(raw.losses ?? raw.loss_count ?? 0) || 0
+  const winRateRaw = Number(raw.winRatePercent ?? raw.win_rate_percent ?? raw.winRate ?? raw.win_rate)
+  const ratingRaw = Number(raw.currentRating ?? raw.current_rating ?? raw.rating)
+
+  const recentMatchesRaw = raw.recentMatches ?? raw.recent_matches ?? raw.lastMatches ?? raw.last_matches
+  const recentMatches = Array.isArray(recentMatchesRaw)
+    ? recentMatchesRaw.slice(0, 5).map((entry) => {
+        const e = entry as Record<string, unknown>
+        const opponentRaw = e.opponent ?? e.opponentName ?? e.opponent_name
+        const resultRaw = String(e.result ?? e.outcome ?? '-')
+          .trim()
+          .toUpperCase()
+        const parsedResult: 'W' | 'L' | 'D' | '-' =
+          resultRaw === 'W' || resultRaw === 'WIN'
+            ? 'W'
+            : resultRaw === 'L' || resultRaw === 'LOSS'
+              ? 'L'
+              : resultRaw === 'D' || resultRaw === 'DRAW'
+                ? 'D'
+                : '-'
+        const ratingDeltaRaw = Number(e.ratingDelta ?? e.rating_delta)
+        const playedAtRaw = e.playedAt ?? e.played_at ?? e.createdAt ?? e.created_at
+        return {
+          opponent:
+            typeof opponentRaw === 'string' && opponentRaw.trim() ? opponentRaw.trim() : 'Unknown opponent',
+          result: parsedResult,
+          ratingDelta: Number.isFinite(ratingDeltaRaw) ? Math.trunc(ratingDeltaRaw) : null,
+          playedAt: typeof playedAtRaw === 'string' && playedAtRaw.trim() ? playedAtRaw : null,
+          finalFen:
+            typeof (e.finalFen ?? e.final_fen ?? e.endFen ?? e.end_fen ?? e.fen) === 'string' &&
+            String(e.finalFen ?? e.final_fen ?? e.endFen ?? e.end_fen ?? e.fen).trim()
+              ? String(e.finalFen ?? e.final_fen ?? e.endFen ?? e.end_fen ?? e.fen).trim()
+              : null,
+        }
+      })
+    : []
+
+  const computedWinRate =
+    matchesPlayed > 0 ? Math.round((Math.max(0, wins) / Math.max(1, matchesPlayed)) * 1000) / 10 : null
+
   return {
     userId: Number.isFinite(userId) ? userId : 0,
     totalEvents: Number(raw.totalEvents ?? raw.total_events ?? 0) || 0,
     queueJoins: Number(raw.queueJoins ?? raw.queue_joins ?? 0) || 0,
     queueLeaves: Number(raw.queueLeaves ?? raw.queue_leaves ?? 0) || 0,
+    matchesPlayed: Math.max(0, Math.trunc(matchesPlayed)),
+    wins: Math.max(0, Math.trunc(wins)),
+    losses: Math.max(0, Math.trunc(losses)),
+    winRatePercent: Number.isFinite(winRateRaw)
+      ? Math.max(0, Math.min(100, Math.round(winRateRaw * 10) / 10))
+      : computedWinRate,
+    currentRating: Number.isFinite(ratingRaw) ? Math.trunc(ratingRaw) : null,
+    recentMatches,
   }
 }
 

@@ -198,18 +198,72 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 28px 16px;
+  padding: 28px 18px;
+  background:
+    radial-gradient(circle at 24% 45%, rgba(96, 113, 95, 0.2), transparent 40%),
+    radial-gradient(circle at 82% 12%, rgba(132, 136, 144, 0.16), transparent 32%),
+    linear-gradient(140deg, #121416 0%, #1a1d21 52%, #22262b 100%);
+}
+
+:global(html[data-app-theme='light']) .authLanding {
+  background:
+    radial-gradient(circle at 24% 45%, rgba(126, 181, 112, 0.12), transparent 40%),
+    radial-gradient(circle at 82% 12%, rgba(125, 146, 168, 0.16), transparent 32%),
+    linear-gradient(140deg, #d9e1ea 0%, #cfd9e4 52%, #c4cfdd 100%);
+}
+
+.authLandingScene {
+  width: min(1240px, 100%);
+  display: grid;
+  grid-template-columns: minmax(420px, 1.15fr) minmax(320px, 0.85fr);
+  gap: 34px;
+  align-items: center;
+}
+
+.authLandingBoardPane {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.authLandingBoard {
+  --chess-board-inner: min(72vw, 700px);
+  --chess-board-label-gutter: 22px;
+}
+
+.authLandingBoardCaption {
+  margin: 0;
+  color: rgba(236, 240, 231, 0.78);
+  font-size: 0.92rem;
+  letter-spacing: 0.02em;
+  text-align: center;
 }
 
 .authLandingCard {
   width: 100%;
-  max-width: 560px;
-  padding: 48px 40px;
+  max-width: 430px;
+  justify-self: end;
+  padding: 42px 34px;
   border-radius: 22px;
-  border: 1px solid var(--color-border);
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.02));
-  box-shadow: 0 28px 56px rgba(0, 0, 0, 0.45);
-  text-align: center;
+  border: 1px solid rgba(210, 216, 226, 0.18);
+  background:
+    radial-gradient(circle at 14% 0%, rgba(255, 255, 255, 0.08), transparent 38%),
+    linear-gradient(158deg, rgba(22, 25, 31, 0.95), rgba(14, 17, 22, 0.95));
+  box-shadow:
+    0 26px 52px rgba(0, 0, 0, 0.56),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  text-align: left;
+}
+
+:global(html[data-app-theme='light']) .authLandingCard {
+  border-color: rgba(116, 132, 152, 0.28);
+  background:
+    radial-gradient(circle at 14% 0%, rgba(255, 255, 255, 0.9), transparent 40%),
+    linear-gradient(158deg, rgba(245, 249, 253, 0.95), rgba(232, 239, 247, 0.95));
+  box-shadow:
+    0 18px 40px rgba(60, 82, 110, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .authLandingCard h1 {
@@ -217,6 +271,7 @@
   font-size: 2.4rem;
   letter-spacing: 0.02em;
   color: var(--color-text);
+  text-align: center;
 }
 
 .authLandingLead {
@@ -224,6 +279,40 @@
   font-size: 1rem;
   line-height: 1.45;
   color: var(--color-muted);
+}
+
+.authLandingForm {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.authLandingCard .input {
+  border: 1px solid rgba(170, 181, 199, 0.28);
+  background: linear-gradient(180deg, rgba(16, 20, 26, 0.92), rgba(12, 15, 20, 0.92));
+}
+
+.authLandingCard .input:focus {
+  border-color: rgba(var(--color-primary-2-rgb), 0.68);
+  box-shadow:
+    0 0 0 3px rgba(var(--color-primary-2-rgb), 0.18),
+    0 0 0 1px rgba(var(--color-primary-2-rgb), 0.3);
+}
+
+.authLandingSubmit {
+  width: 100%;
+  margin-top: 2px;
+  color: #ffffff;
+  background: rgba(var(--color-primary-2-rgb), 0.95);
+  border: 1px solid rgba(var(--color-primary-2-rgb), 0.95);
+}
+
+.authLandingSubmit:hover:not(:disabled) {
+  color: #ffffff;
+  border-color: rgba(var(--color-primary-2-rgb), 1);
+  background: rgba(var(--color-primary-2-rgb), 1);
+  filter: none;
 }
 
 .guestPlayButton {
@@ -274,29 +363,30 @@
   background: var(--color-border);
 }
 
-.authLandingLinks {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.authLandingRegisterRow {
+  margin-top: 12px;
+  color: rgba(223, 229, 237, 0.72);
+  font-size: 0.92rem;
+  text-align: center;
 }
 
-.authLandingLinks a {
-  width: 100%;
-  box-sizing: border-box;
-  min-height: 56px;
-  font-size: 1.08rem;
+.authLandingRegister {
+  display: inline-block;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: rgba(var(--color-primary-2-rgb), 0.95);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: rgba(var(--color-primary-2-rgb), 0.6);
 }
 
-.authLandingLinks .primaryButton {
-  color: #ffffff;
-  background: linear-gradient(180deg, var(--color-primary-2), var(--color-primary));
-  border: none;
-}
-
-.authLandingLinks .secondaryButton {
-  color: var(--color-primary-2);
-  background: transparent;
-  border: 1px solid rgba(var(--color-primary-2-rgb), 0.55);
+.authLandingRegister:hover {
+  color: rgba(var(--color-primary-2-rgb), 1);
+  text-decoration-color: rgba(var(--color-primary-2-rgb), 0.9);
 }
 
 .authShell {
@@ -326,24 +416,48 @@
 
 .authGuestLink {
   width: 100%;
-  margin-top: 4px;
+  margin-top: 10px;
   padding: 12px 16px;
   font-size: 0.95rem;
   font-weight: 700;
-  color: var(--color-muted);
-  background: transparent;
-  border: 1px dashed rgba(var(--color-primary-2-rgb), 0.35);
+  color: rgba(218, 226, 238, 0.82);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed rgba(182, 196, 216, 0.3);
   border-radius: 12px;
   cursor: pointer;
 }
 
 .authGuestLink:hover:not(:disabled) {
-  color: var(--color-text);
-  border-color: rgba(var(--color-primary-2-rgb), 0.55);
-  background: rgba(var(--color-primary-2-rgb), 0.06);
+  color: #f0f4fb;
+  border-color: rgba(var(--color-primary-2-rgb), 0.58);
+  background: rgba(var(--color-primary-2-rgb), 0.08);
 }
 
 .authGuestLink:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+@media (max-width: 1040px) {
+  .authLandingScene {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .authLandingCard {
+    justify-self: center;
+    max-width: 560px;
+    text-align: center;
+  }
+}
+
+@media (max-width: 720px) {
+  .authLandingBoard {
+    --chess-board-inner: min(90vw, 520px);
+    --chess-board-label-gutter: 18px;
+  }
+
+  .authLandingCard {
+    padding: 34px 22px;
+  }
 }

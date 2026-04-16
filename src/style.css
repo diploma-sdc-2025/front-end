@@ -16,8 +16,8 @@
   /* Chess.com-like dark UI */
   --color-text: #ffffff;
   --color-muted: rgba(255, 255, 255, 0.72);
-  --color-bg: #1a1e1a;
-  --color-bg-mid: #222a22;
+  --color-bg: #151a20;
+  --color-bg-mid: #1d2430;
   --color-surface: rgba(255, 255, 255, 0.03);
   --color-border: rgba(255, 255, 255, 0.12);
 
@@ -26,6 +26,9 @@
   --color-primary-2: #4e7837;
   --color-primary-rgb: 105, 146, 62;
   --color-primary-2-rgb: 78, 120, 55;
+  --page-bg-deep: #11161e;
+  --page-grid-line: rgba(255, 255, 255, 0.03);
+  --page-vignette: rgba(0, 0, 0, 0.45);
 
   background-color: var(--color-bg);
   color: var(--color-text);
@@ -33,6 +36,24 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+}
+
+:root[data-app-theme='light'] {
+  color-scheme: light;
+
+  --color-text: #192330;
+  --color-muted: rgba(25, 35, 48, 0.72);
+  --color-bg: #cfd7e1;
+  --color-bg-mid: #bcc7d4;
+  --color-surface: rgba(15, 27, 40, 0.06);
+  --color-border: rgba(31, 47, 64, 0.24);
+  --color-primary: #628f3c;
+  --color-primary-2: #4f7938;
+  --color-primary-rgb: 98, 143, 60;
+  --color-primary-2-rgb: 79, 121, 56;
+  --page-bg-deep: #aeb9c8;
+  --page-grid-line: rgba(0, 0, 0, 0.06);
+  --page-vignette: rgba(10, 20, 32, 0.16);
 }
 
 * {
@@ -46,19 +67,19 @@ body {
   background-color: var(--color-bg);
   background-attachment: fixed;
 
-  /* Full-page depth: base gradient + soft green glows + subtle grid */
+  /* Full-page depth: base gradient + neutral glows + subtle grid */
   background-image:
-    radial-gradient(ellipse 120% 80% at 15% -10%, rgba(var(--color-primary-rgb), 0.18), transparent 50%),
-    radial-gradient(ellipse 90% 70% at 95% 25%, rgba(var(--color-primary-2-rgb), 0.12), transparent 45%),
-    radial-gradient(ellipse 70% 50% at 50% 100%, rgba(0, 0, 0, 0.45), transparent 55%),
-    linear-gradient(165deg, var(--color-bg) 0%, var(--color-bg-mid) 45%, #161916 100%),
+    radial-gradient(ellipse 120% 80% at 15% -10%, rgba(132, 146, 170, 0.16), transparent 50%),
+    radial-gradient(ellipse 90% 70% at 95% 25%, rgba(94, 108, 132, 0.14), transparent 45%),
+    radial-gradient(ellipse 70% 50% at 50% 100%, var(--page-vignette), transparent 55%),
+    linear-gradient(165deg, var(--color-bg) 0%, var(--color-bg-mid) 45%, var(--page-bg-deep) 100%),
     linear-gradient(
-      rgba(255, 255, 255, 0.03) 1px,
+      var(--page-grid-line) 1px,
       transparent 1px
     ),
     linear-gradient(
       90deg,
-      rgba(255, 255, 255, 0.03) 1px,
+      var(--page-grid-line) 1px,
       transparent 1px
     );
   background-size:

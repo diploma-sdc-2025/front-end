@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { NavigateFunction } from 'react-router-dom'
+import { gameApi } from '../api/game.ts'
 import { matchmakingApi, matchIdFromJoinOrStatus } from '../api/matchmaking.ts'
+import { parseUserIdFromAccessToken } from '../util/jwtClaims.ts'
 
 const POLL_MS = 1500
 /** Avoid treating a single early `inQueue: false` as an error before the server catches up */
@@ -38,15 +40,40 @@ export function useMatchmakingQueue(accessToken: string | null, navigate: Naviga
   useEffect(() => () => clearTimers(), [clearTimers])
 
   const goToMatch = useCallback(
-    (matchId: number) => {
+    async (matchId: number) => {
+      if (!accessToken) return
+      try {
+        const m = await gameApi.getMatch(matchId, accessToken)
+        const myId = parseUserIdFromAccessToken(accessToken)
+        if (myId != null && !m.playerIds.includes(myId)) {
+          setError('That match is not yours. Click Play again.')
+          clearTimers()
+          searchingRef.current = false
+          setPhase('idle')
+          setElapsedSec(0)
+          setIsJoining(false)
+          return
+        }
+      } catch {
+        setError('Could not verify the match with game-service (check it is running and Vite proxies /api/game).')
+        clearTimers()
+        searchingRef.current = false
+        setPhase('idle')
+        setElapsedSec(0)
+        setIsJoining(false)
+        return
+      }
       clearTimers()
       searchingRef.current = false
       pollCount.current = 0
       setPhase('idle')
       setElapsedSec(0)
-      navigate(`/game/${matchId}`, { replace: true })
+      navigate(`/game/${matchId}`, {
+        replace: true,
+        state: { matchAssignedAt: Date.now() },
+      })
     },
-    [clearTimers, navigate],
+    [accessToken, clearTimers, navigate],
   )
 
   const startFinding = useCallback(async () => {
@@ -58,11 +85,14 @@ export function useMatchmakingQueue(accessToken: string | null, navigate: Naviga
     setIsJoining(true)
 
     try {
+      await matchmakingApi.leave(accessToken).catch(() => {
+        /* not in queue */
+      })
       const joinRes = await matchmakingApi.join(accessToken)
       const immediate = matchIdFromJoinOrStatus(joinRes)
       if (immediate !== null) {
         setIsJoining(false)
-        goToMatch(immediate)
+        await goToMatch(immediate)
         return
       }
 
@@ -84,7 +114,7 @@ export function useMatchmakingQueue(accessToken: string | null, navigate: Naviga
           const mid = matchIdFromJoinOrStatus(s)
           if (mid !== null) {
             setIsJoining(false)
-            goToMatch(mid)
+            await goToMatch(mid)
             return
           }
           if (

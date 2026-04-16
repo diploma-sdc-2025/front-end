@@ -20,7 +20,7 @@
 
   position: relative;
 
-  background-color: #3a4a35;
+  background-color: var(--board-dark-square, #3a4a35);
 
   box-shadow:
 
@@ -91,7 +91,7 @@
 
 .square.light {
 
-  background-color: #f2ecdc;
+  background-color: var(--board-light-square, #f2ecdc);
 
 }
 
@@ -99,7 +99,7 @@
 
 .square.dark {
 
-  background-color: #5a7d4e;
+  background-color: var(--board-dark-square, #5a7d4e);
 
 }
 
@@ -295,6 +295,15 @@
 
   color: rgba(245, 248, 236, 0.92);
 
+}
+
+:global(html[data-show-coordinates='0']) .board {
+  --label-gutter: 0px;
+}
+
+:global(html[data-show-coordinates='0']) .rankLabels,
+:global(html[data-show-coordinates='0']) .fileLabels {
+  display: none;
 }
 
 

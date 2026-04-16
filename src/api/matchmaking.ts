@@ -34,6 +34,7 @@ async function request<T>(
   const { body, ...rest } = options
   const init: RequestInit = {
     ...rest,
+    cache: 'no-store',
     headers: {
       'Content-Type': 'application/json',
       ...authHeaders(accessToken),
@@ -53,12 +54,26 @@ async function request<T>(
   return JSON.parse(text) as T
 }
 
-/** Match id from join or status payloads (camelCase or snake_case). */
+/** Match id from join or status payloads (camelCase, snake_case, or nested `data` / `match`). */
 export function matchIdFromJoinOrStatus(
   payload: QueueJoinResponse | QueueStatusResponse | Record<string, unknown>,
 ): number | null {
   const p = payload as Record<string, unknown>
-  return coerceMatchId(p.matchId ?? p.match_id)
+  const direct = coerceMatchId(p.matchId ?? p.match_id)
+  if (direct !== null) return direct
+  const data = p.data
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const d = data as Record<string, unknown>
+    const fromData = coerceMatchId(d.matchId ?? d.match_id ?? d.id)
+    if (fromData !== null) return fromData
+  }
+  const match = p.match
+  if (match && typeof match === 'object' && !Array.isArray(match)) {
+    const m = match as Record<string, unknown>
+    const fromMatch = coerceMatchId(m.id ?? m.matchId ?? m.match_id)
+    if (fromMatch !== null) return fromMatch
+  }
+  return null
 }
 
 export const matchmakingApi = {

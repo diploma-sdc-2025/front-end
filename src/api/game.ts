@@ -59,6 +59,8 @@ export interface BattleRoundResponse {
   blackKing: KingSquareDto
   /** Up to 20 UCI half-moves from Stockfish PV (~10 moves per side; White to move in `fen`). */
   principalVariation: string[]
+  /** Shared server epoch ms when battle presentation should end and both clients return to shop. */
+  battleViewEndsAt: number
   whiteHp: number
   blackHp: number
 }
@@ -140,6 +142,7 @@ async function request<T>(
   const { body, ...rest } = options
   const init: RequestInit = {
     ...rest,
+    cache: 'no-store',
     headers: {
       'Content-Type': 'application/json',
       ...authHeaders(accessToken),
@@ -312,6 +315,8 @@ export const gameApi = {
       : []
     const whiteHpRaw = raw.whiteHp ?? raw.white_hp
     const blackHpRaw = raw.blackHp ?? raw.black_hp
+    const battleViewEndsAtRaw = raw.battleViewEndsAt ?? raw.battle_view_ends_at
+    const battleViewEndsAtN = Number(battleViewEndsAtRaw)
     return {
       fen: String(raw.fen ?? ''),
       centipawns: Number(raw.centipawns ?? 0),
@@ -324,6 +329,7 @@ export const gameApi = {
       whiteKing,
       blackKing,
       principalVariation,
+      battleViewEndsAt: Number.isFinite(battleViewEndsAtN) ? Math.trunc(battleViewEndsAtN) : Date.now() + 25_000,
       whiteHp: Number.isFinite(Number(whiteHpRaw)) ? Math.max(0, Math.trunc(Number(whiteHpRaw))) : 100,
       blackHp: Number.isFinite(Number(blackHpRaw)) ? Math.max(0, Math.trunc(Number(blackHpRaw))) : 100,
     }
