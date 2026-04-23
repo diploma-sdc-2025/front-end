@@ -18,12 +18,13 @@ function formatAdvantagePawns(cp: number): string {
 type Props = {
   centipawns: number
   className?: string
+  invert?: boolean
 }
 
 /**
  * Vertical bar: white on top, black on bottom; fill shows who is ahead (Stockfish cp from White’s view).
  */
-export function EvaluationBar({ centipawns, className }: Props) {
+export function EvaluationBar({ centipawns, className, invert = false }: Props) {
   const whiteShare = centipawnsToWhiteBarShare(centipawns)
   const whitePct = whiteShare * 100
   const blackPct = 100 - whitePct
@@ -31,6 +32,9 @@ export function EvaluationBar({ centipawns, className }: Props) {
   const whiteAhead = centipawns > 0
   const blackAhead = centipawns < 0
   const even = centipawns === 0
+  const whiteOnTop = !invert
+  const topPct = whiteOnTop ? whitePct : blackPct
+  const bottomPct = 100 - topPct
 
   const aria = even
     ? 'Position is equal'
@@ -45,20 +49,24 @@ export function EvaluationBar({ centipawns, className }: Props) {
     >
       <div className={gameStyle.evalBarTrack}>
         <div
-          className={gameStyle.evalBarWhite}
-          style={{ height: `${whitePct}%` }}
+          className={whiteOnTop ? gameStyle.evalBarWhite : gameStyle.evalBarBlack}
+          style={{ height: `${topPct}%` }}
         />
         <div
-          className={gameStyle.evalBarBlack}
-          style={{ height: `${blackPct}%` }}
+          className={whiteOnTop ? gameStyle.evalBarBlack : gameStyle.evalBarWhite}
+          style={{ height: `${bottomPct}%` }}
         />
         {whiteAhead ? (
-          <div className={`${gameStyle.evalBarScore} ${gameStyle.evalBarScoreTop}`}>
+          <div
+            className={`${gameStyle.evalBarScore} ${whiteOnTop ? gameStyle.evalBarScoreTop : gameStyle.evalBarScoreBottom}`}
+          >
             <span className={gameStyle.evalBarScoreInner}>+{label}</span>
           </div>
         ) : null}
         {blackAhead ? (
-          <div className={`${gameStyle.evalBarScore} ${gameStyle.evalBarScoreBottom}`}>
+          <div
+            className={`${gameStyle.evalBarScore} ${whiteOnTop ? gameStyle.evalBarScoreBottom : gameStyle.evalBarScoreTop}`}
+          >
             <span className={gameStyle.evalBarScoreInner}>{label}</span>
           </div>
         ) : null}

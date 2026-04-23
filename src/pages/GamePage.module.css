@@ -19,6 +19,15 @@
   backdrop-filter: blur(4px);
 }
 
+.tutorialHintBackdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 250;
+  background: rgba(6, 9, 7, 0.45);
+  /* Dim only: hints live under this layer in DOM but inside a lower stacking context (e.g. .boardArea overflow), so clicks must pass through to the dialogs. */
+  pointer-events: none;
+}
+
 .tutorialWelcomeCard {
   width: min(460px, calc(100vw - 36px));
   border-radius: 16px;
@@ -58,6 +67,18 @@
   background: rgba(18, 23, 18, 0.9);
 }
 
+.tutorialCompleteBackdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 320;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 9, 7, 0.75);
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
+}
+
 .tutorialShopGuideArea {
   position: relative;
   display: flex;
@@ -66,11 +87,24 @@
   gap: 8px;
 }
 
-.tutorialShopHint {
+.tutorialBenchAnchor {
+  position: relative;
+  width: calc(var(--chess-board-inner-compact) + var(--chess-board-label-gutter, 18px));
+}
+
+.tutorialShopAnchor {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.tutorialBenchHint {
   position: absolute;
-  left: -270px;
+  left: calc(100% + 12px);
   top: 50%;
-  transform: translateY(-20%);
+  transform: translateY(-50%);
   width: 230px;
   border-radius: 12px;
   border: 1px solid rgba(177, 196, 165, 0.5);
@@ -80,6 +114,63 @@
   flex-direction: column;
   gap: 10px;
   z-index: 260;
+  pointer-events: auto;
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.tutorialBenchHint::after {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 48%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+  border-right: 12px solid rgba(177, 196, 165, 0.75);
+}
+
+.tutorialBenchHintText {
+  margin: 0;
+  color: #f2f6ed;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.tutorialBenchHintButton {
+  align-self: flex-end;
+  border: 1px solid rgba(177, 196, 165, 0.5);
+  background: rgba(14, 18, 14, 0.8);
+  color: #f2f6ed;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tutorialBenchHintButton:hover {
+  background: rgba(18, 23, 18, 0.9);
+}
+
+.tutorialShopHint {
+  position: absolute;
+  right: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 230px;
+  border-radius: 12px;
+  border: 1px solid rgba(177, 196, 165, 0.5);
+  background: rgba(14, 18, 14, 0.95);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 260;
+  pointer-events: auto;
   box-shadow:
     0 10px 24px rgba(0, 0, 0, 0.38),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
@@ -118,6 +209,314 @@
 }
 
 .tutorialShopHintButton:hover {
+  background: rgba(18, 23, 18, 0.9);
+}
+
+.tutorialCurrencyAnchor {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+}
+
+.tutorialCurrencyHint {
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 250px;
+  border-radius: 12px;
+  border: 1px solid rgba(177, 196, 165, 0.5);
+  background: rgba(14, 18, 14, 0.95);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 260;
+  pointer-events: auto;
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.tutorialCurrencyHint::after {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 48%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+  border-right: 12px solid rgba(177, 196, 165, 0.75);
+}
+
+.tutorialCurrencyHintText {
+  margin: 0;
+  color: #f2f6ed;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.tutorialCurrencyHintButton {
+  align-self: flex-end;
+  border: 1px solid rgba(177, 196, 165, 0.5);
+  background: rgba(14, 18, 14, 0.8);
+  color: #f2f6ed;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tutorialCurrencyHintButton:hover {
+  background: rgba(18, 23, 18, 0.9);
+}
+
+.tutorialEvalHint {
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 280px;
+  border-radius: 12px;
+  border: 1px solid rgba(177, 196, 165, 0.5);
+  background: rgba(14, 18, 14, 0.95);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 260;
+  pointer-events: auto;
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.tutorialEvalHint::after {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 48%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+  border-right: 12px solid rgba(177, 196, 165, 0.75);
+}
+
+.tutorialEvalHintText {
+  margin: 0;
+  color: #f2f6ed;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.tutorialEvalHintButton {
+  align-self: flex-end;
+  border: 1px solid rgba(177, 196, 165, 0.5);
+  background: rgba(14, 18, 14, 0.8);
+  color: #f2f6ed;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tutorialEvalHintButton:hover {
+  background: rgba(18, 23, 18, 0.9);
+}
+
+.tutorialRemoveAnchor {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.tutorialRemoveHint {
+  position: absolute;
+  right: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 260px;
+  border-radius: 12px;
+  border: 1px solid rgba(177, 196, 165, 0.5);
+  background: rgba(14, 18, 14, 0.95);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 260;
+  pointer-events: auto;
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.tutorialRemoveHint::after {
+  content: '';
+  position: absolute;
+  right: -12px;
+  top: 48%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+  border-left: 12px solid rgba(177, 196, 165, 0.75);
+}
+
+.tutorialRemoveHintText {
+  margin: 0;
+  color: #f2f6ed;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.tutorialRemoveHintButton {
+  align-self: flex-end;
+  border: 1px solid rgba(177, 196, 165, 0.5);
+  background: rgba(14, 18, 14, 0.8);
+  color: #f2f6ed;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tutorialRemoveHintButton:hover {
+  background: rgba(18, 23, 18, 0.9);
+}
+
+.tutorialRoundTimerAnchor {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.tutorialTimerBattleHint {
+  position: absolute;
+  right: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 260px;
+  border-radius: 12px;
+  border: 1px solid rgba(177, 196, 165, 0.5);
+  background: rgba(14, 18, 14, 0.95);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 260;
+  pointer-events: auto;
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.tutorialTimerBattleHint::after {
+  content: '';
+  position: absolute;
+  right: -12px;
+  top: 48%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+  border-left: 12px solid rgba(177, 196, 165, 0.75);
+}
+
+.tutorialTimerBattleHintText {
+  margin: 0;
+  color: #f2f6ed;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.tutorialTimerBattleHintButton {
+  align-self: flex-end;
+  border: 1px solid rgba(177, 196, 165, 0.5);
+  background: rgba(14, 18, 14, 0.8);
+  color: #f2f6ed;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tutorialTimerBattleHintButton:hover {
+  background: rgba(18, 23, 18, 0.9);
+}
+
+.tutorialKnightBishopPair {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Same geometry as .tutorialShopHint: card sits to the left of the full shop block, arrow points at the shop. */
+.tutorialKnightBishopHint {
+  position: absolute;
+  right: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: min(280px, calc(100vw - 48px));
+  border-radius: 12px;
+  border: 1px solid rgba(177, 196, 165, 0.5);
+  background: rgba(14, 18, 14, 0.95);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 260;
+  pointer-events: auto;
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.tutorialKnightBishopHint::after {
+  content: '';
+  position: absolute;
+  right: -12px;
+  top: 48%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+  border-left: 12px solid rgba(177, 196, 165, 0.75);
+}
+
+.tutorialKnightBishopHintText {
+  margin: 0;
+  color: #f2f6ed;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.tutorialKnightBishopHintButton {
+  align-self: flex-end;
+  border: 1px solid rgba(177, 196, 165, 0.5);
+  background: rgba(14, 18, 14, 0.8);
+  color: #f2f6ed;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tutorialKnightBishopHintButton:hover {
   background: rgba(18, 23, 18, 0.9);
 }
 
@@ -193,6 +592,7 @@
 }
 
 .hpAndEvalRow {
+  position: relative;
   display: flex;
   flex-direction: row;
   align-items: flex-end;
@@ -749,16 +1149,138 @@
 }
 
 @media (max-width: 900px) {
-  .tutorialShopHint {
-    left: 0;
-    right: 0;
-    top: -96px;
+  .tutorialBenchHint {
+    left: 50%;
+    right: auto;
+    top: -10px;
     width: min(260px, calc(100vw - 40px));
-    transform: none;
-    margin: 0 auto;
+    transform: translate(-50%, -100%);
+    margin: 0;
+  }
+
+  .tutorialBenchHint::after {
+    left: 50%;
+    right: auto;
+    top: auto;
+    bottom: -12px;
+    transform: translateX(-50%);
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-top: 12px solid rgba(177, 196, 165, 0.75);
+    border-bottom: none;
+  }
+
+  .tutorialShopHint {
+    right: 50%;
+    top: -10px;
+    width: min(260px, calc(100vw - 40px));
+    transform: translate(50%, -100%);
+    margin: 0;
   }
 
   .tutorialShopHint::after {
+    left: 50%;
+    right: auto;
+    top: auto;
+    bottom: -12px;
+    transform: translateX(-50%);
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-top: 12px solid rgba(177, 196, 165, 0.75);
+    border-bottom: none;
+  }
+
+  .tutorialCurrencyHint {
+    left: 50%;
+    right: auto;
+    top: -10px;
+    width: min(280px, calc(100vw - 40px));
+    transform: translate(-50%, -100%);
+    margin: 0;
+  }
+
+  .tutorialCurrencyHint::after {
+    left: 50%;
+    right: auto;
+    top: auto;
+    bottom: -12px;
+    transform: translateX(-50%);
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-top: 12px solid rgba(177, 196, 165, 0.75);
+    border-bottom: none;
+  }
+
+  .tutorialEvalHint {
+    left: 50%;
+    right: auto;
+    top: -10px;
+    width: min(300px, calc(100vw - 40px));
+    transform: translate(-50%, -100%);
+    margin: 0;
+  }
+
+  .tutorialEvalHint::after {
+    left: 50%;
+    right: auto;
+    top: auto;
+    bottom: -12px;
+    transform: translateX(-50%);
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-top: 12px solid rgba(177, 196, 165, 0.75);
+    border-bottom: none;
+  }
+
+  .tutorialRemoveHint {
+    right: 50%;
+    top: -10px;
+    width: min(280px, calc(100vw - 40px));
+    transform: translate(50%, -100%);
+    margin: 0;
+  }
+
+  .tutorialRemoveHint::after {
+    left: 50%;
+    right: auto;
+    top: auto;
+    bottom: -12px;
+    transform: translateX(-50%);
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-top: 12px solid rgba(177, 196, 165, 0.75);
+    border-bottom: none;
+  }
+
+  .tutorialTimerBattleHint {
+    right: 50%;
+    top: -10px;
+    width: min(280px, calc(100vw - 40px));
+    transform: translate(50%, -100%);
+    margin: 0;
+  }
+
+  .tutorialTimerBattleHint::after {
+    left: 50%;
+    right: auto;
+    top: auto;
+    bottom: -12px;
+    transform: translateX(-50%);
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-top: 12px solid rgba(177, 196, 165, 0.75);
+    border-bottom: none;
+  }
+
+  .tutorialKnightBishopHint {
+    right: 50%;
+    top: -10px;
+    width: min(260px, calc(100vw - 40px));
+    transform: translate(50%, -100%);
+    margin: 0;
+  }
+
+  .tutorialKnightBishopHint::after {
     left: 50%;
     right: auto;
     top: auto;

@@ -9,6 +9,7 @@ import { parseUserIdFromAccessToken } from '../util/jwtClaims.ts'
 import { analyticsApi, type PlayerStats } from '../api/analytics.ts'
 import { fetchUsersByIds } from '../api/users.ts'
 import { BattlePreviewBoard } from '../components/BattlePreviewBoard.tsx'
+import lobbyBoardStyle from '../components/LobbyChessBoard.module.css'
 import type { BoardPieceDto, KingSquareDto, ShopPiece } from '../api/game.ts'
 import { Chess, type Square } from 'chess.js'
 import {
@@ -26,6 +27,9 @@ import {
   writeLocalToggle,
   writeLocalValue,
 } from '../util/displayPreferences.ts'
+
+/** Stored before joining queue so the game client can branch when 1v3 is implemented. */
+const QUEUE_MODE_STORAGE_KEY = 'diploma:queueMode'
 
 const AUDIO_MUTE_ALL_KEY = 'menu_audio_mute_all'
 const AUDIO_MATCH_SOUND_KEY = 'menu_audio_match_found_sound'
@@ -207,6 +211,8 @@ export function Home() {
   const [leaderboardError, setLeaderboardError] = useState<string | null>(null)
   const [myStats, setMyStats] = useState<PlayerStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
+  const [playModePickerOpen, setPlayModePickerOpen] = useState(false)
+  const [selectedQueueMode, setSelectedQueueMode] = useState<'1v1' | '1v3' | null>(null)
   const playerName = useMemo(() => resolveDisplayName(accessToken), [accessToken])
   const myUserId = useMemo(() => parseUserIdFromAccessToken(accessToken), [accessToken])
 
@@ -276,6 +282,13 @@ export function Home() {
   }, [accessToken, tab, leaderboardRefresh, isGuest])
 
   useEffect(() => {
+    if (queue.phase === 'finding') {
+      setPlayModePickerOpen(false)
+      setSelectedQueueMode(null)
+    }
+  }, [queue.phase])
+
+  useEffect(() => {
     if (tab !== 'settings') {
       setSettingsPanel('root')
     }
@@ -327,7 +340,10 @@ export function Home() {
     const ratingDisplay = myStats?.currentRating != null ? myStats.currentRating.toLocaleString() : '—'
     const recentMatches = myStats?.recentMatches ?? []
 
+    const startBoard = demoPositions[0]!
+
     return (
+      <>
       <div className={menuStyle.menuFrame}>
         <div className={menuStyle.menuCard}>
           <header className={menuStyle.menuHeader}>
@@ -1032,7 +1048,11 @@ export function Home() {
                 <button
                   type="button"
                   className={`${style.primaryButton} ${menuStyle.playButton}`}
-                  onClick={() => queue.startFinding()}
+                  onClick={() => {
+                    if (queue.phase !== 'idle' || queue.isJoining) return
+                    setSelectedQueueMode('1v1')
+                    setPlayModePickerOpen(true)
+                  }}
                   disabled={queue.phase !== 'idle' || queue.isJoining}
                 >
                   {queue.phase === 'idle' ? (queue.isJoining ? 'Joining…' : 'Play') : 'Searching…'}
@@ -1053,6 +1073,91 @@ export function Home() {
           </div>
         </div>
       </div>
+
+      {playModePickerOpen ? (
+        <div
+          className={menuStyle.playModePickerOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="play-mode-picker-title"
+        >
+          <div className={menuStyle.playModePickerPanel}>
+            <h2 id="play-mode-picker-title" className={menuStyle.playModePickerTitle}>
+              Choose a mode
+            </h2>
+            <p className={menuStyle.playModePickerSub}>Select a board, then Play.</p>
+            <div className={menuStyle.playModePickerBoards}>
+              <button
+                type="button"
+                className={`${menuStyle.playModeBoardChoice} ${selectedQueueMode === '1v1' ? menuStyle.playModeBoardChoiceSelected : ''}`}
+                onClick={() => setSelectedQueueMode('1v1')}
+              >
+                <span className={menuStyle.playModeBoardLabel}>1 vs 1</span>
+                <BattlePreviewBoard
+                  className={`${lobbyBoardStyle.boardCompact} ${menuStyle.playModePickerBoard}`}
+                  whiteKing={startBoard.whiteKing}
+                  blackKing={startBoard.blackKing}
+                  whitePieces={startBoard.whitePieces}
+                  blackPieces={startBoard.blackPieces}
+                  viewAsBlack={false}
+                />
+              </button>
+              <button
+                type="button"
+                disabled
+                aria-disabled="true"
+                aria-label="1 vs 3, coming out soon"
+                className={`${menuStyle.playModeBoardChoice} ${menuStyle.playModeBoardChoiceDisabled}`}
+              >
+                <span className={menuStyle.playModeBoardLabel}>1 vs 3</span>
+                <div className={menuStyle.playModeBoardLockedWrap}>
+                  <BattlePreviewBoard
+                    className={`${lobbyBoardStyle.boardCompact} ${menuStyle.playModePickerBoard}`}
+                    whiteKing={startBoard.whiteKing}
+                    blackKing={startBoard.blackKing}
+                    whitePieces={startBoard.whitePieces}
+                    blackPieces={startBoard.blackPieces}
+                    viewAsBlack={false}
+                  />
+                  <span className={menuStyle.playModeBoardLockedBadge} aria-hidden>
+                    Coming out soon
+                  </span>
+                </div>
+              </button>
+            </div>
+            <div className={menuStyle.playModePickerActions}>
+              <button
+                type="button"
+                className={style.secondaryButton}
+                onClick={() => {
+                  setPlayModePickerOpen(false)
+                  setSelectedQueueMode(null)
+                }}
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                className={`${style.primaryButton} ${menuStyle.playModePickerPlay}`}
+                disabled={selectedQueueMode == null || queue.phase !== 'idle' || queue.isJoining}
+                onClick={() => {
+                  if (selectedQueueMode == null) return
+                  try {
+                    sessionStorage.setItem(QUEUE_MODE_STORAGE_KEY, selectedQueueMode)
+                  } catch {
+                    /* ignore quota / private mode */
+                  }
+                  setPlayModePickerOpen(false)
+                  void queue.startFinding()
+                }}
+              >
+                Play
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      </>
     )
   }
 
