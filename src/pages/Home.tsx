@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMatchmakingQueue } from '../hooks/useMatchmakingQueue.ts'
 import { resolveDisplayName } from '../util/displayName.ts'
 import { parseUserIdFromAccessToken } from '../util/jwtClaims.ts'
+import { isAdminFromAccessToken } from '../util/adminAccess.ts'
 import { analyticsApi, type PlayerStats } from '../api/analytics.ts'
 import { fetchUsersByIds } from '../api/users.ts'
 import { BattlePreviewBoard } from '../components/BattlePreviewBoard.tsx'
@@ -27,13 +28,15 @@ import {
   writeLocalToggle,
   writeLocalValue,
 } from '../util/displayPreferences.ts'
+import {
+  AUDIO_CLICK_SOUND_KEY,
+  AUDIO_GAME_SOUNDS_KEY,
+  AUDIO_MATCH_SOUND_KEY,
+  AUDIO_MUTE_ALL_KEY,
+} from '../util/menuAudio.ts'
 
 /** Stored before joining queue so the game client can branch when 1v3 is implemented. */
 const QUEUE_MODE_STORAGE_KEY = 'diploma:queueMode'
-
-const AUDIO_MUTE_ALL_KEY = 'menu_audio_mute_all'
-const AUDIO_MATCH_SOUND_KEY = 'menu_audio_match_found_sound'
-const AUDIO_CLICK_SOUND_KEY = 'menu_audio_click_sound'
 const NOTIFY_BATTLE_REMINDER_KEY = 'menu_notify_battle_reminder'
 const NOTIFY_BROWSER_KEY = 'menu_notify_browser'
 
@@ -169,7 +172,7 @@ export function Home() {
   const demoPositions = useMemo(() => buildDemoPositions(), [])
   const [demoPositionIdx, setDemoPositionIdx] = useState(0)
 
-  type Tab = 'profile' | 'leaderboard' | 'settings' | 'statistics'
+  type Tab = 'profile' | 'leaderboard' | 'settings' | 'statistics' | 'howToPlay'
   const [tab, setTab] = useState<Tab>('profile')
   const [settingsPanel, setSettingsPanel] = useState<
     'root' | 'account' | 'audio' | 'display' | 'notifications'
@@ -179,6 +182,7 @@ export function Home() {
     readLocalToggle(AUDIO_MATCH_SOUND_KEY, true),
   )
   const [audioClickSound, setAudioClickSound] = useState(() => readLocalToggle(AUDIO_CLICK_SOUND_KEY, true))
+  const [audioGameSounds, setAudioGameSounds] = useState(() => readLocalToggle(AUDIO_GAME_SOUNDS_KEY, true))
   const [notifyBattleReminder, setNotifyBattleReminder] = useState(() =>
     readLocalToggle(NOTIFY_BATTLE_REMINDER_KEY, true),
   )
@@ -203,18 +207,22 @@ export function Home() {
       userId: number
       username: string
       totalEvents: number
-      queueJoins: number
-      queueLeaves: number
+      matchesPlayed: number
+      winRatePercent: number
+      currentRating: number
     }>
   >([])
   const [leaderboardLoading, setLeaderboardLoading] = useState(false)
   const [leaderboardError, setLeaderboardError] = useState<string | null>(null)
   const [myStats, setMyStats] = useState<PlayerStats | null>(null)
+  const [recentOpponentLabels, setRecentOpponentLabels] = useState<Map<number, string>>(() => new Map())
   const [statsLoading, setStatsLoading] = useState(false)
   const [playModePickerOpen, setPlayModePickerOpen] = useState(false)
+  const [practiceVsBotNoticeOpen, setPracticeVsBotNoticeOpen] = useState(false)
   const [selectedQueueMode, setSelectedQueueMode] = useState<'1v1' | '1v3' | null>(null)
   const playerName = useMemo(() => resolveDisplayName(accessToken), [accessToken])
   const myUserId = useMemo(() => parseUserIdFromAccessToken(accessToken), [accessToken])
+  const isAdmin = useMemo(() => isAdminFromAccessToken(accessToken), [accessToken])
 
   useEffect(() => {
     if (isGuest && (tab === 'leaderboard' || tab === 'statistics')) {
@@ -247,6 +255,42 @@ export function Home() {
   }, [accessToken, myUserId, isGuest])
 
   useEffect(() => {
+    if (!accessToken || !myStats?.recentMatches?.length) {
+      setRecentOpponentLabels(new Map())
+      return
+    }
+    const ids = [
+      ...new Set(
+        myStats.recentMatches
+          .map((m) => m.opponentUserId)
+          .filter((id): id is number => id != null && Number.isFinite(id) && id > 0),
+      ),
+    ]
+    if (!ids.length) {
+      setRecentOpponentLabels(new Map())
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const map = await fetchUsersByIds(accessToken, ids)
+        if (cancelled) return
+        const next = new Map<number, string>()
+        for (const id of ids) {
+          const u = map.get(id)
+          next.set(id, u?.username ?? `Player #${id}`)
+        }
+        setRecentOpponentLabels(next)
+      } catch {
+        if (!cancelled) setRecentOpponentLabels(new Map())
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [accessToken, myStats])
+
+  useEffect(() => {
     if (!accessToken || tab !== 'leaderboard' || isGuest) return
     let cancelled = false
     setLeaderboardLoading(true)
@@ -261,10 +305,11 @@ export function Home() {
           rows.map((r) => ({
             rank: r.rank,
             userId: r.userId,
-            username: names.get(r.userId) ?? `Player #${r.userId}`,
+            username: names.get(r.userId)?.username ?? `Player #${r.userId}`,
             totalEvents: r.totalEvents,
-            queueJoins: r.queueJoins,
-            queueLeaves: r.queueLeaves,
+            matchesPlayed: r.matchesPlayed,
+            winRatePercent: r.winRatePercent,
+            currentRating: r.currentRating,
           })),
         )
       } catch (e) {
@@ -287,6 +332,21 @@ export function Home() {
       setSelectedQueueMode(null)
     }
   }, [queue.phase])
+
+  useEffect(() => {
+    if (!practiceVsBotNoticeOpen) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPracticeVsBotNoticeOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [practiceVsBotNoticeOpen])
+
+  useEffect(() => {
+    if (!accessToken) return
+    if (!/(session expired|invalid token|unauthorized|401)/i.test(queue.error)) return
+    void logout()
+  }, [accessToken, queue.error, logout])
 
   useEffect(() => {
     if (tab !== 'settings') {
@@ -336,8 +396,8 @@ export function Home() {
     const matchesPlayed = myStats?.matchesPlayed ?? 0
     const wins = myStats?.wins ?? 0
     const losses = myStats?.losses ?? 0
-    const winRateDisplay = myStats?.winRatePercent != null ? `${myStats.winRatePercent.toFixed(1)}%` : '—'
-    const ratingDisplay = myStats?.currentRating != null ? myStats.currentRating.toLocaleString() : '—'
+    const winRateDisplay = myStats?.winRatePercent != null ? `${myStats.winRatePercent.toFixed(1)}%` : '-'
+    const ratingDisplay = myStats?.currentRating != null ? myStats.currentRating.toLocaleString() : '-'
     const recentMatches = myStats?.recentMatches ?? []
 
     const startBoard = demoPositions[0]!
@@ -349,11 +409,7 @@ export function Home() {
           <header className={menuStyle.menuHeader}>
             <div className={menuStyle.headerIntro}>
               <div className={menuStyle.headerText}>
-                <p className={menuStyle.subWelcome}>
-                  {isGuest
-                    ? 'Guest mode — play matchmaking; create an account to track stats and rankings.'
-                    : ''}
-                </p>
+                <p className={menuStyle.subWelcome} />
               </div>
               <div className={menuStyle.headerWordmark} aria-hidden>
                 AUTO-CHESS
@@ -388,6 +444,19 @@ export function Home() {
                 </button>
               )}
 
+              {isAdmin && (
+                <button
+                  type="button"
+                  className={menuStyle.tabButton}
+                  onClick={() => navigate('/admin/analytics')}
+                >
+                  <div className={menuStyle.tabIconRow}>
+                    <span className={menuStyle.tabIcon}>🛡️</span>
+                    <span className={menuStyle.tabTitle}>Admin Live</span>
+                  </div>
+                </button>
+              )}
+
               <button
                 type="button"
                 className={`${menuStyle.tabButton} ${tab === 'settings' ? menuStyle.tabButtonActive : ''}`}
@@ -401,12 +470,23 @@ export function Home() {
 
               <button
                 type="button"
-                className={menuStyle.tabButton}
-                onClick={() => navigate('/game/tutorial', { state: { matchAssignedAt: Date.now() } })}
+                className={`${menuStyle.tabButton} ${tab === 'howToPlay' ? menuStyle.tabButtonActive : ''}`}
+                onClick={() => setTab('howToPlay')}
               >
                 <div className={menuStyle.tabIconRow}>
                   <span className={menuStyle.tabIcon}>📘</span>
-                  <span className={menuStyle.tabTitle}>How to play</span>
+                  <span className={`${menuStyle.tabTitle} ${menuStyle.tabTitleHowToPlay}`}>How to play</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                className={menuStyle.tabButton}
+                onClick={() => setPracticeVsBotNoticeOpen(true)}
+              >
+                <div className={menuStyle.tabIconRow}>
+                  <span className={menuStyle.tabIcon}>🤖</span>
+                  <span className={menuStyle.tabTitle}>Practice vs bot</span>
                 </div>
               </button>
 
@@ -426,139 +506,264 @@ export function Home() {
 
             <main className={menuStyle.menuMain}>
             <div
-              className={`${menuStyle.tabContentWrap} ${tab === 'settings' ? menuStyle.tabContentWrapScrollable : ''}`}
+              className={`${menuStyle.tabContentWrap} ${tab === 'settings' || tab === 'howToPlay' ? menuStyle.tabContentWrapScrollable : ''}`}
             >
               {tab === 'profile' && (
                 <>
                   <h2 className={menuStyle.sectionTitle}>PROFILE</h2>
                   {isGuest ? (
-                    <p className={menuStyle.sectionSubtle}>
-                      Guest accounts can play immediately; create an account to store ranked history.
-                    </p>
-                  ) : null}
-                  <div className={menuStyle.profileGrid}>
+                    <div className={menuStyle.guestRegisterWrap}>
+                      <p className={menuStyle.guestProfileIntro}>
+                        Guest mode - create an account to track stats and rankings.
+                      </p>
+                      <Link
+                        to="/register"
+                        className={`${style.primaryButton} ${style.primaryButtonLightLabel} ${menuStyle.guestRegisterCta}`}
+                      >
+                        Create free account
+                      </Link>
+                    </div>
+                  ) : (
+                    <>
+                      <div className={menuStyle.profileGrid}>
+                        <section className={menuStyle.profileCard}>
+                          <div className={menuStyle.profileIdentityRow}>
+                            <div className={menuStyle.profileAvatar} aria-hidden>
+                              {avatarInitials || 'P'}
+                            </div>
+                            <div>
+                              <p className={menuStyle.profileLabel}>Player</p>
+                              <p className={menuStyle.profileValue}>{playerName}</p>
+                            </div>
+                            <span className={menuStyle.profileTag}>Registered</span>
+                          </div>
+                          <div className={menuStyle.profileRatingBox}>
+                            <span className={menuStyle.profileLabel}>Current rating</span>
+                            <strong className={menuStyle.profileRatingValue}>
+                              {statsLoading ? '…' : ratingDisplay}
+                            </strong>
+                          </div>
+                        </section>
+
+                        <section className={menuStyle.profileCard}>
+                          <p className={menuStyle.profileLabel}>Performance</p>
+                          <div className={menuStyle.profileStatsGrid}>
+                            <div className={menuStyle.profileStatTile}>
+                              <div className={menuStyle.profileStatValue}>
+                                {statsLoading ? '…' : matchesPlayed.toLocaleString()}
+                              </div>
+                              <div className={menuStyle.profileStatLabel}>Matches played</div>
+                            </div>
+                            <div className={menuStyle.profileStatTile}>
+                              <div className={menuStyle.profileStatValue}>
+                                {statsLoading ? '…' : winRateDisplay}
+                              </div>
+                              <div className={menuStyle.profileStatLabel}>Win rate</div>
+                            </div>
+                            <div className={menuStyle.profileStatTile}>
+                              <div className={menuStyle.profileStatValue}>
+                                {statsLoading ? '…' : wins.toLocaleString()}
+                              </div>
+                              <div className={menuStyle.profileStatLabel}>Wins</div>
+                            </div>
+                            <div className={menuStyle.profileStatTile}>
+                              <div className={menuStyle.profileStatValue}>
+                                {statsLoading ? '…' : losses.toLocaleString()}
+                              </div>
+                              <div className={menuStyle.profileStatLabel}>Losses</div>
+                            </div>
+                          </div>
+                        </section>
+                      </div>
+
+                      <section className={menuStyle.profileCard} style={{ marginTop: 12 }}>
+                        <div className={menuStyle.profileRecentHeader}>
+                          <p className={menuStyle.profileLabel}>Last 5 matches</p>
+                        </div>
+                        {statsLoading ? (
+                          <p className={menuStyle.sectionSubtle}>Loading match history…</p>
+                        ) : (
+                          <div className={menuStyle.profileMiniBoardsGrid}>
+                            {Array.from({ length: 5 }, (_, idx) => recentMatches[idx] ?? null).map((match, idx) => {
+                              const pieces = parseFenPiecesForMiniBoard(match?.finalFen ?? null)
+                              return (
+                                <button
+                                  key={match ? `${match.opponent}-${match.playedAt ?? idx}` : `empty-${idx}`}
+                                  type="button"
+                                  className={menuStyle.profileMiniBoardCard}
+                                  title="Match details coming soon"
+                                >
+                                  <div className={menuStyle.profileMiniBoardTop}>
+                                    <span className={menuStyle.profileRecentResult}>{match?.result ?? '-'}</span>
+                                    <span className={menuStyle.profileMiniBoardOpponent}>
+                                      {match == null
+                                        ? 'No match yet'
+                                        : match.opponentUserId != null
+                                          ? recentOpponentLabels.get(match.opponentUserId) ??
+                                            match.opponent ??
+                                            `Player #${match.opponentUserId}`
+                                          : match.opponent ?? 'Unknown opponent'}
+                                    </span>
+                                  </div>
+                                  <div className={menuStyle.profileMiniBoardSurface}>
+                                    {pieces ? (
+                                      <div className={menuStyle.profileMiniBoardSquares}>
+                                        {pieces.map((piece, squareIdx) => {
+                                          const row = Math.floor(squareIdx / 8)
+                                          const col = squareIdx % 8
+                                          const light = (row + col) % 2 === 0
+                                          return (
+                                            <div
+                                              key={squareIdx}
+                                              className={`${menuStyle.profileMiniSquare} ${light ? menuStyle.profileMiniSquareLight : menuStyle.profileMiniSquareDark}`}
+                                            >
+                                              {piece ? (
+                                                <img
+                                                  src={`/pieces/${miniPieceSpriteName(piece.piece)}-white.png`}
+                                                  alt=""
+                                                  aria-hidden
+                                                  className={`${menuStyle.profileMiniPiece} ${piece.black ? menuStyle.profileMiniPieceBlack : ''}`}
+                                                />
+                                              ) : null}
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    ) : (
+                                      <div className={menuStyle.profileMiniBoardPlaceholder}>No board data</div>
+                                    )}
+                                  </div>
+                                  <div className={menuStyle.profileMiniBoardMeta}>
+                                    <span>{match?.playedAt ? new Date(match.playedAt).toLocaleDateString() : '-'}</span>
+                                    <span>
+                                      {match?.ratingDelta == null
+                                        ? 'Δ -'
+                                        : `Δ ${match.ratingDelta > 0 ? '+' : ''}${match.ratingDelta}`}
+                                    </span>
+                                  </div>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </section>
+                    </>
+                  )}
+                </>
+              )}
+
+              {tab === 'howToPlay' && (
+                <>
+                  <h2 className={`${menuStyle.sectionTitle} ${menuStyle.howToPlayPageTitle}`}>HOW TO PLAY</h2>
+
+                  <div className={menuStyle.howToPlayGuides}>
                     <section className={menuStyle.profileCard}>
-                      <div className={menuStyle.profileIdentityRow}>
-                        <div className={menuStyle.profileAvatar} aria-hidden>
-                          {avatarInitials || 'P'}
-                        </div>
-                        <div>
-                          <p className={menuStyle.profileLabel}>Player</p>
-                          <p className={menuStyle.profileValue}>{playerName}</p>
-                        </div>
-                        <span className={menuStyle.profileTag}>{isGuest ? 'Guest' : 'Registered'}</span>
-                      </div>
-                      <div className={menuStyle.profileRatingBox}>
-                        <span className={menuStyle.profileLabel}>Current rating</span>
-                        <strong className={menuStyle.profileRatingValue}>{statsLoading ? '…' : ratingDisplay}</strong>
-                      </div>
+                      <h3 className={menuStyle.howToPlayModeTitle}>1 vs 1</h3>
+                      <p className={menuStyle.howToPlayLead}>
+                        1v1 Mode is a strategy-based game where you compete directly against another player. Success
+                        depends on how well you position your pieces and manage your resources.
+                      </p>
+
+                      <h4 className={menuStyle.howToPlaySubTitle}>Starting the Game</h4>
+                      <p className={menuStyle.howToPlayBody}>Each player begins with:</p>
+                      <ul className={menuStyle.howToPlayList}>
+                        <li>1 King</li>
+                        <li>2 Currency Pawns</li>
+                      </ul>
+                      <p className={menuStyle.howToPlayBody}>Currency pawns are used to buy combat pieces.</p>
+
+                      <h4 className={menuStyle.howToPlaySubTitle}>Shop Phase</h4>
+                      <ul className={menuStyle.howToPlayList}>
+                        <li>Use your currency to purchase and place pieces anywhere on the board.</li>
+                        <li>You can sell pieces at full price if you want to change your strategy.</li>
+                        <li>
+                          Positioning is key - especially your King, which should be kept safe.
+                        </li>
+                      </ul>
+
+                      <h4 className={menuStyle.howToPlaySubTitle}>Battle Phase</h4>
+                      <ul className={menuStyle.howToPlayList}>
+                        <li>When the timer reaches 0, the battle begins automatically.</li>
+                        <li>Your setup is evaluated against your opponent’s.</li>
+                        <li>
+                          An evaluation bar shows how much damage you deal or receive based on positioning and piece
+                          choices.
+                        </li>
+                      </ul>
+
+                      <h4 className={menuStyle.howToPlaySubTitle}>Health &amp; Damage</h4>
+                      <ul className={menuStyle.howToPlayList}>
+                        <li>Each player starts with 50 HP.</li>
+                        <li>The maximum damage per round is 10 HP.</li>
+                      </ul>
+
+                      <h4 className={menuStyle.howToPlaySubTitle}>Round Cycle</h4>
+                      <p className={menuStyle.howToPlayBody}>After each battle:</p>
+                      <ul className={menuStyle.howToPlayList}>
+                        <li>A new shop phase begins.</li>
+                        <li>Both players receive 2 new currency pawns.</li>
+                        <li>The cycle repeats until one player’s HP reaches 0.</li>
+                      </ul>
+
+                      <h4 className={menuStyle.howToPlaySubTitle}>Winning the Game</h4>
+                      <p className={menuStyle.howToPlayBody}>The last player with remaining HP wins.</p>
                     </section>
 
                     <section className={menuStyle.profileCard}>
-                      <p className={menuStyle.profileLabel}>Performance</p>
-                      <div className={menuStyle.profileStatsGrid}>
-                        <div className={menuStyle.profileStatTile}>
-                          <div className={menuStyle.profileStatValue}>
-                            {statsLoading ? '…' : matchesPlayed.toLocaleString()}
-                          </div>
-                          <div className={menuStyle.profileStatLabel}>Matches played</div>
-                        </div>
-                        <div className={menuStyle.profileStatTile}>
-                          <div className={menuStyle.profileStatValue}>
-                            {statsLoading ? '…' : winRateDisplay}
-                          </div>
-                          <div className={menuStyle.profileStatLabel}>Win rate</div>
-                        </div>
-                        <div className={menuStyle.profileStatTile}>
-                          <div className={menuStyle.profileStatValue}>
-                            {statsLoading ? '…' : wins.toLocaleString()}
-                          </div>
-                          <div className={menuStyle.profileStatLabel}>Wins</div>
-                        </div>
-                        <div className={menuStyle.profileStatTile}>
-                          <div className={menuStyle.profileStatValue}>
-                            {statsLoading ? '…' : losses.toLocaleString()}
-                          </div>
-                          <div className={menuStyle.profileStatLabel}>Losses</div>
-                        </div>
-                      </div>
+                      <h3 className={menuStyle.howToPlayModeTitle}>1 vs 3</h3>
+                      <p className={menuStyle.howToPlayLead}>
+                        This mode follows the same core rules as 1v1, but with four players in a free-for-all,
+                        last-man-standing match - each player is on their own, not a premade team.
+                      </p>
+
+                      <h4 className={menuStyle.howToPlaySubTitle}>Objective</h4>
+                      <ul className={menuStyle.howToPlayList}>
+                        <li>Defeat all opponents.</li>
+                        <li>The last player with remaining HP wins.</li>
+                      </ul>
+
+                      <h4 className={menuStyle.howToPlaySubTitle}>Core rules</h4>
+                      <p className={menuStyle.howToPlayBody}>All standard mechanics from 1v1 apply:</p>
+                      <ul className={menuStyle.howToPlayList}>
+                        <li>Shop phase → battle phase loop</li>
+                        <li>Piece placement and positioning</li>
+                        <li>50 HP per player</li>
+                        <li>Maximum 10 damage per round</li>
+                      </ul>
+
+                      <h4 className={menuStyle.howToPlaySubTitle}>Economy &amp; pricing</h4>
+                      <p className={menuStyle.howToPlayBody}>
+                        <strong>Piece costs increased:</strong> all pieces except pawns cost +1 compared to{' '}
+                        <strong>1v1</strong> shop prices (e.g. knights and bishops cost 4 instead of 3).
+                      </p>
+
+                      <h4 className={menuStyle.howToPlaySubTitle}>Income &amp; streaks</h4>
+                      <p className={menuStyle.howToPlayBody}>
+                        <strong>Base income:</strong> players receive 2 currency pawns each round.
+                      </p>
+                      <p className={menuStyle.howToPlayBody}>
+                        <strong>Losing streak bonus:</strong> after each loss, you gain +1 extra pawn per round. This
+                        bonus does not stack - as long as you keep losing, your income stays at 3 pawns per round (2 base +
+                        1 bonus). It resets when you win a round.
+                      </p>
+                      <p className={menuStyle.howToPlayBody}>
+                        <strong>Win streak bonus:</strong> after 2 consecutive wins, you gain +1 extra pawn per round.
+                        This bonus does not stack - while the streak continues, your income stays at 3 pawns per round (2 base
+                        + 1 bonus). It resets when your streak breaks (you lose a round).
+                      </p>
+
                     </section>
                   </div>
 
-                  <section className={menuStyle.profileCard} style={{ marginTop: 12 }}>
-                    <div className={menuStyle.profileRecentHeader}>
-                      <p className={menuStyle.profileLabel}>Last 5 matches</p>
-                    </div>
-                    {statsLoading ? (
-                      <p className={menuStyle.sectionSubtle}>Loading match history…</p>
-                    ) : (
-                      <div className={menuStyle.profileMiniBoardsGrid}>
-                        {Array.from({ length: 5 }, (_, idx) => recentMatches[idx] ?? null).map((match, idx) => {
-                          const pieces = parseFenPiecesForMiniBoard(match?.finalFen ?? null)
-                          return (
-                            <button
-                              key={match ? `${match.opponent}-${match.playedAt ?? idx}` : `empty-${idx}`}
-                              type="button"
-                              className={menuStyle.profileMiniBoardCard}
-                              title="Match details coming soon"
-                            >
-                              <div className={menuStyle.profileMiniBoardTop}>
-                                <span className={menuStyle.profileRecentResult}>{match?.result ?? '-'}</span>
-                                <span className={menuStyle.profileMiniBoardOpponent}>{match?.opponent ?? 'No match yet'}</span>
-                              </div>
-                              <div className={menuStyle.profileMiniBoardSurface}>
-                                {pieces ? (
-                                  <div className={menuStyle.profileMiniBoardSquares}>
-                                    {pieces.map((piece, squareIdx) => {
-                                      const row = Math.floor(squareIdx / 8)
-                                      const col = squareIdx % 8
-                                      const light = (row + col) % 2 === 0
-                                      return (
-                                        <div
-                                          key={squareIdx}
-                                          className={`${menuStyle.profileMiniSquare} ${light ? menuStyle.profileMiniSquareLight : menuStyle.profileMiniSquareDark}`}
-                                        >
-                                          {piece ? (
-                                            <img
-                                              src={`/pieces/${miniPieceSpriteName(piece.piece)}-white.png`}
-                                              alt=""
-                                              aria-hidden
-                                              className={`${menuStyle.profileMiniPiece} ${piece.black ? menuStyle.profileMiniPieceBlack : ''}`}
-                                            />
-                                          ) : null}
-                                        </div>
-                                      )
-                                    })}
-                                  </div>
-                                ) : (
-                                  <div className={menuStyle.profileMiniBoardPlaceholder}>No board data</div>
-                                )}
-                              </div>
-                              <div className={menuStyle.profileMiniBoardMeta}>
-                                <span>{match?.playedAt ? new Date(match.playedAt).toLocaleDateString() : '—'}</span>
-                                <span>
-                                  {match?.ratingDelta == null
-                                    ? 'Δ —'
-                                    : `Δ ${match.ratingDelta > 0 ? '+' : ''}${match.ratingDelta}`}
-                                </span>
-                              </div>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </section>
-
-                  {isGuest ? (
-                    <div className={menuStyle.profileActionRow}>
-                      <Link to="/register" className={style.primaryButton} style={{ textAlign: 'center' }}>
-                        Create free account
-                      </Link>
-                      <Link to="/login" className={style.secondaryButton} style={{ textAlign: 'center' }}>
-                        I already have an account
-                      </Link>
-                    </div>
-                  ) : null}
+                  <div className={menuStyle.howToPlayTutorialRow}>
+                    <button
+                      type="button"
+                      className={`${style.primaryButton} ${style.primaryButtonLightLabel} ${menuStyle.howToPlayTutorialButton}`}
+                      onClick={() => navigate('/game/tutorial', { state: { matchAssignedAt: Date.now() } })}
+                    >
+                      Start the tutorial
+                    </button>
+                  </div>
                 </>
               )}
 
@@ -573,7 +778,7 @@ export function Home() {
                   )}
                   {leaderboardLoading && <p className={menuStyle.sectionSubtle}>Loading…</p>}
                   {!leaderboardLoading && !leaderboardError && leaderboardRows.length === 0 && (
-                    <p className={menuStyle.sectionSubtle}>No data yet — queue for a match to appear here.</p>
+                    <p className={menuStyle.sectionSubtle}>No data yet - queue for a match to appear here.</p>
                   )}
                   <div className={menuStyle.leaderboardScroll}>
                     <div className={menuStyle.list}>
@@ -586,10 +791,10 @@ export function Home() {
                               {myUserId != null && row.userId === myUserId ? ' (you)' : ''}
                             </div>
                             <div className={menuStyle.rowSub}>
-                              Joins {row.queueJoins} · Leaves {row.queueLeaves}
+                              Games {row.matchesPlayed} · Win rate {row.winRatePercent.toFixed(1)}%
                             </div>
                           </div>
-                          <div className={menuStyle.rowValue}>{row.totalEvents}</div>
+                          <div className={menuStyle.rowValue}>{row.currentRating}</div>
                         </div>
                       ))}
                     </div>
@@ -702,13 +907,26 @@ export function Home() {
                               type="button"
                               className={`${menuStyle.toggleSwitch} ${audioMuteAll ? menuStyle.toggleSwitchOn : ''}`}
                               aria-pressed={audioMuteAll}
-                              onClick={() =>
-                                setAudioMuteAll((on) => {
-                                  const next = !on
-                                  writeLocalToggle(AUDIO_MUTE_ALL_KEY, next)
-                                  return next
-                                })
-                              }
+                              onClick={() => {
+                                const next = !audioMuteAll
+                                writeLocalToggle(AUDIO_MUTE_ALL_KEY, next)
+                                setAudioMuteAll(next)
+                                if (next) {
+                                  setAudioMatchFoundSound(true)
+                                  writeLocalToggle(AUDIO_MATCH_SOUND_KEY, true)
+                                  setAudioGameSounds(true)
+                                  writeLocalToggle(AUDIO_GAME_SOUNDS_KEY, true)
+                                  setAudioClickSound(true)
+                                  writeLocalToggle(AUDIO_CLICK_SOUND_KEY, true)
+                                } else {
+                                  setAudioMatchFoundSound(false)
+                                  writeLocalToggle(AUDIO_MATCH_SOUND_KEY, false)
+                                  setAudioGameSounds(false)
+                                  writeLocalToggle(AUDIO_GAME_SOUNDS_KEY, false)
+                                  setAudioClickSound(false)
+                                  writeLocalToggle(AUDIO_CLICK_SOUND_KEY, false)
+                                }
+                              }}
                             >
                               <span className={menuStyle.toggleKnob} />
                             </button>
@@ -720,8 +938,11 @@ export function Home() {
                             </div>
                             <button
                               type="button"
+                              disabled={audioMuteAll}
                               className={`${menuStyle.toggleSwitch} ${audioMatchFoundSound ? menuStyle.toggleSwitchOn : ''}`}
                               aria-pressed={audioMatchFoundSound}
+                              aria-disabled={audioMuteAll}
+                              title={audioMuteAll ? 'Turn off Mute all to adjust individual sounds' : undefined}
                               onClick={() =>
                                 setAudioMatchFoundSound((on) => {
                                   const next = !on
@@ -736,12 +957,38 @@ export function Home() {
 
                           <div className={menuStyle.toggleLine}>
                             <div className={menuStyle.toggleLabel}>
+                              <div className={menuStyle.toggleName}>Battle &amp; piece sounds</div>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={audioMuteAll}
+                              className={`${menuStyle.toggleSwitch} ${audioGameSounds ? menuStyle.toggleSwitchOn : ''}`}
+                              aria-pressed={audioGameSounds}
+                              aria-disabled={audioMuteAll}
+                              title={audioMuteAll ? 'Turn off Mute all to adjust individual sounds' : undefined}
+                              onClick={() =>
+                                setAudioGameSounds((on) => {
+                                  const next = !on
+                                  writeLocalToggle(AUDIO_GAME_SOUNDS_KEY, next)
+                                  return next
+                                })
+                              }
+                            >
+                              <span className={menuStyle.toggleKnob} />
+                            </button>
+                          </div>
+
+                          <div className={menuStyle.toggleLine}>
+                            <div className={menuStyle.toggleLabel}>
                               <div className={menuStyle.toggleName}>Button click sounds</div>
                             </div>
                             <button
                               type="button"
+                              disabled={audioMuteAll}
                               className={`${menuStyle.toggleSwitch} ${audioClickSound ? menuStyle.toggleSwitchOn : ''}`}
                               aria-pressed={audioClickSound}
+                              aria-disabled={audioMuteAll}
+                              title={audioMuteAll ? 'Turn off Mute all to adjust individual sounds' : undefined}
                               onClick={() =>
                                 setAudioClickSound((on) => {
                                   const next = !on
@@ -996,7 +1243,7 @@ export function Home() {
                     <div className={menuStyle.statsPrimaryCard}>
                       <div className={menuStyle.statsPrimaryLabel}>Matches played</div>
                       <div className={menuStyle.statsPrimaryValue}>
-                        {statsLoading ? '…' : myStats != null ? myStats.matchesPlayed.toLocaleString() : '—'}
+                        {statsLoading ? '…' : myStats != null ? myStats.matchesPlayed.toLocaleString() : '-'}
                       </div>
                       <div className={menuStyle.statsPrimarySub}>Total completed matches</div>
                     </div>
@@ -1004,13 +1251,13 @@ export function Home() {
                     <div className={menuStyle.statsTriple}>
                       <div className={menuStyle.statsMiniCard}>
                         <div className={menuStyle.statsMiniValue}>
-                          {statsLoading ? '…' : myStats != null ? myStats.wins.toLocaleString() : '—'}
+                          {statsLoading ? '…' : myStats != null ? myStats.wins.toLocaleString() : '-'}
                         </div>
                         <div className={menuStyle.statsMiniLabel}>Wins</div>
                       </div>
                       <div className={menuStyle.statsMiniCard}>
                         <div className={menuStyle.statsMiniValue}>
-                          {statsLoading ? '…' : myStats != null ? myStats.losses.toLocaleString() : '—'}
+                          {statsLoading ? '…' : myStats != null ? myStats.losses.toLocaleString() : '-'}
                         </div>
                         <div className={menuStyle.statsMiniLabel}>Losses</div>
                       </div>
@@ -1020,7 +1267,7 @@ export function Home() {
                             ? '…'
                             : myStats?.winRatePercent != null
                               ? `${myStats.winRatePercent.toFixed(1)}%`
-                              : '—'}
+                              : '-'}
                         </div>
                         <div className={menuStyle.statsMiniLabel}>Win rate</div>
                       </div>
@@ -1040,7 +1287,7 @@ export function Home() {
             )}
               {queue.phase === 'finding' && (
                 <p className={menuStyle.sectionSubtle} style={{ margin: 0, textAlign: 'center' }}>
-                  Finding match... Queue: {queue.queueSize} · Position: {queue.position ?? '—'}
+                  Finding match... Queue: {queue.queueSize} · Position: {queue.position ?? '-'}
                 </p>
               )}
 
@@ -1152,6 +1399,40 @@ export function Home() {
                 }}
               >
                 Play
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {practiceVsBotNoticeOpen ? (
+        <div
+          className={menuStyle.noticeModalOverlay}
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setPracticeVsBotNoticeOpen(false)
+          }}
+        >
+          <div
+            className={menuStyle.noticeModalPanel}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="practice-vs-bot-notice-title"
+          >
+            <h2 id="practice-vs-bot-notice-title" className={menuStyle.noticeModalTitle}>
+              Practice vs bot
+            </h2>
+            <p className={menuStyle.noticeModalBody}>
+              This mode is still in development. A dedicated practice flow against an AI opponent will be added in a
+              future update. Use <strong>How to play</strong> for the interactive tutorial in the meantime.
+            </p>
+            <div className={menuStyle.noticeModalActions}>
+              <button
+                type="button"
+                className={menuStyle.noticeModalButton}
+                onClick={() => setPracticeVsBotNoticeOpen(false)}
+              >
+                Got it
               </button>
             </div>
           </div>

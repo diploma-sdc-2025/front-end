@@ -15,15 +15,25 @@ import {
 } from '../components/LobbyChessBoard.tsx'
 import {
   gameApi,
+  GAME_HP_MAX,
   type BoardPieceDto,
   PAWN_RANK_ROWS_MAX,
   PAWN_RANK_ROWS_MIN,
   type BattleRoundResponse,
   type ShopPiece,
+  type ShopStateResponse,
 } from '../api/game.ts'
+import { fetchUsersByIds, formatPlayerLine } from '../api/users.ts'
+import { resolveDisplayName } from '../util/displayName.ts'
 import { battleApi, type BattleEvaluateResponse } from '../api/battle.ts'
 import { battlePositionAfterUciMoves, type BattleReplayPosition } from '../util/battlePvReplay.ts'
 import { applyDisplayPreferencesToDocument, getSavedDisplayPreferences } from '../util/displayPreferences.ts'
+import {
+  playBattleReplayMoveSound,
+  playBattleStartSound,
+  playPieceMoveSound,
+} from '../util/menuAudio.ts'
+import { parseIsGuestFromAccessToken, parseUserIdFromAccessToken } from '../util/jwtClaims.ts'
 
 const PIECE_SPRITES = {
   pawn: '/pieces/pawn-white.png',
@@ -36,11 +46,15 @@ const PIECE_SPRITES = {
 const ROUND_DURATION_SEC = 30
 /** Short pause on the start position before PV stepping (must be > 0 so Strict Mode cannot cancel the arm before it fires). */
 const PV_REPLAY_DELAY_MS = 50
+/** Mirrors game-service replay pacing (same as {@code GameService.BATTLE_VIEW_STEP_MS}). */
+const BATTLE_VIEW_STEP_MS = 1000
 const BATTLE_EVAL_RETRY_MS = 1200
 /** Pause on the final battle position before returning to shop / placement. */
 const BATTLE_END_PAUSE_MS = 2500
 /** Half-moves (plies): 20 = White and Black each move 10 times. */
 const PV_REPLAY_MAX_PLIES = 20
+/** Keep in sync with backend safety buffer for battle timeline restore. */
+const BATTLE_VIEW_SAFETY_BUFFER_MS = 750
 const SHOP_ORDER: ShopPiece[] = ['pawn', 'knight', 'bishop', 'rook', 'queen']
 const TUTORIAL_BENCH: (ShopPiece | null)[] = Array.from({ length: 8 }, () => null)
 const TUTORIAL_START_MONEY = 2
@@ -67,6 +81,12 @@ function formatRoundTime(totalSec: number): string {
   const m = Math.floor(totalSec / 60)
   const s = totalSec % 60
   return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+/** Registered players see a static ±10 hint on the end screen; guests do not. */
+function matchEndRatingOverlay(won: boolean, token: string | null): { won: boolean; ratingDelta?: number } {
+  if (!token || parseIsGuestFromAccessToken(token)) return { won }
+  return { won, ratingDelta: won ? 10 : -10 }
 }
 
 function addBlackPawnForTutorial(blackKing: { x: number; y: number }, pieces: BoardPieceDto[]): BoardPieceDto[] {
@@ -122,15 +142,38 @@ function boardToFenPlacement(
     .join('/')
 }
 
+function tutorialEnemyOccupiesSquare(col: number, row: number, enemyPieces: BoardPieceDto[]): boolean {
+  if (col === TUTORIAL_ENEMY_KING.x && row === TUTORIAL_ENEMY_KING.y) return true
+  return enemyPieces.some((p) => p.x === col && p.y === row)
+}
+
+/** Own king or a board piece on {@param col},{@param row}; optional {@param excludeFrom} when moving a piece off that square. */
+function friendlyBlocksShopSquare(
+  col: number,
+  row: number,
+  kingSquare: { col: number; row: number },
+  boardPieces: BoardPlacedPiece[],
+  excludeMovingFrom: { col: number; row: number } | null,
+): boolean {
+  if (kingSquare.col === col && kingSquare.row === row) return true
+  return boardPieces.some((p) => {
+    if (excludeMovingFrom && p.col === excludeMovingFrom.col && p.row === excludeMovingFrom.row) return false
+    return p.col === col && p.row === row
+  })
+}
+
 export function Game({ mode = 'normal' }: GameProps) {
   const navigate = useNavigate()
   const { matchId } = useParams<{ matchId: string }>()
   const { accessToken } = useAuth()
-  const [pawnMoney, setPawnMoney] = useState(0)
+  const [pawnMoney, setPawnMoney] = useState(2)
   /** Visual bar capacity: at least 2, expands if the server reports higher gold. */
   const [pawnMoneyCap, setPawnMoneyCap] = useState(2)
-  const [playerHp, setPlayerHp] = useState(100)
-  const [playerHpMax, setPlayerHpMax] = useState(100)
+  const [playerHp, setPlayerHp] = useState(GAME_HP_MAX)
+  const [playerHpMax, setPlayerHpMax] = useState(GAME_HP_MAX)
+  /** From auth users API; shown in shop/battle headers. */
+  const [selfUsername, setSelfUsername] = useState('')
+  const [opponentUsername, setOpponentUsername] = useState('')
   const [roundTimeLeft, setRoundTimeLeft] = useState(ROUND_DURATION_SEC)
   /** Server-authoritative shop deadline (epoch ms); keeps multi-tab countdowns aligned. */
   const [shopPhaseEndsAtMs, setShopPhaseEndsAtMs] = useState<number | null>(null)
@@ -163,14 +206,24 @@ export function Game({ mode = 'normal' }: GameProps) {
   const [battleResult, setBattleResult] = useState<BattleRoundResponse | null>(null)
   const [battleError, setBattleError] = useState('')
   const [battleEvalRetryTick, setBattleEvalRetryTick] = useState(0)
+  const [battleRestoreDone, setBattleRestoreDone] = useState(false)
+  /** Set after battle replay when the server reports the match ended (elimination). */
+  const [matchEndOverlay, setMatchEndOverlay] = useState<{ won: boolean; ratingDelta?: number } | null>(null)
   const battleRequestRef = useRef(false)
+  const shopRefreshTimerRef = useRef<number | null>(null)
+  const shopSyncRequestIdRef = useRef(0)
   const phaseRef = useRef<GamePhase>(phase)
   phaseRef.current = phase
   const [pvMovesApplied, setPvMovesApplied] = useState(0)
-  const [pvReplayArmed, setPvReplayArmed] = useState(false)
+  const battleReplayPlySoundRef = useRef(-1)
+  const tutorialReplayPlySoundRef = useRef(-1)
   const [sellBinVisible, setSellBinVisible] = useState(false)
   const [sellBinOver, setSellBinOver] = useState(false)
   const isTutorialMode = mode === 'tutorial'
+  const battleSessionKey = useMemo(
+    () => (matchId ? `autochess:battle:${matchId}` : 'autochess:battle:unknown'),
+    [matchId],
+  )
   const [tutorialBenchSlots, setTutorialBenchSlots] = useState<(ShopPiece | null)[]>(() => [...TUTORIAL_BENCH])
   const [tutorialBoardPieces, setTutorialBoardPieces] = useState<BoardPlacedPiece[]>([])
   const [tutorialKingSquare, setTutorialKingSquare] = useState<{ col: number; row: number }>({ col: 4, row: 7 })
@@ -219,6 +272,20 @@ export function Game({ mode = 'normal' }: GameProps) {
     showTutorialTimerBattleHint ||
     showTutorialKnightBishopHint
 
+  /** Shop timer can show 0 while battle evaluation runs; block buys/placement until phase flips. */
+  const shopInteractionsLocked = useMemo(
+    () => !isTutorialMode && Boolean(battlePending || matchEndOverlay),
+    [isTutorialMode, battlePending, matchEndOverlay],
+  )
+
+  useEffect(() => {
+    return () => {
+      if (shopRefreshTimerRef.current != null) {
+        window.clearTimeout(shopRefreshTimerRef.current)
+      }
+    }
+  }, [])
+
   useEffect(() => {
     applyDisplayPreferencesToDocument(getSavedDisplayPreferences())
   }, [])
@@ -245,46 +312,168 @@ export function Game({ mode = 'normal' }: GameProps) {
 
   useEffect(() => {
     battleRequestRef.current = false
+    shopSyncRequestIdRef.current = 0
     setPhase('shop')
     setShopPhaseEndsAtMs(null)
     setBattlePending(false)
-    setRoundTimeLeft(ROUND_DURATION_SEC)
+    setMatchEndOverlay(null)
+    // Avoid showing a fake local 30s countdown before first authoritative /shop sync.
+    setRoundTimeLeft(0)
     setBattleResult(null)
     setBattleError('')
     setBattleEvalRetryTick(0)
-    setPlayerHp(100)
-    setPlayerHpMax(100)
+    setPlayerHp(GAME_HP_MAX)
+    setPlayerHpMax(GAME_HP_MAX)
+    setSelfUsername('')
+    setOpponentUsername('')
+    setBattleRestoreDone(false)
   }, [matchId])
 
-  /** Reset replay state when a new battle payload arrives; arm PV stepping from the same effect so Strict Mode cannot clear the arm timeout before it runs. */
   useEffect(() => {
-    if (!battleResult) return
-    setPvMovesApplied(0)
-    setPvReplayArmed(false)
-    if (phase !== 'battle') return
-    const pv = Array.isArray(battleResult.principalVariation) ? battleResult.principalVariation : []
-    if (pv.length === 0) return undefined
-    const t = window.setTimeout(() => setPvReplayArmed(true), PV_REPLAY_DELAY_MS)
-    return () => window.clearTimeout(t)
-  }, [battleResult, phase])
+    if (isTutorialMode) return
+    if (!accessToken || !matchId) return
+    const id = parseInt(matchId, 10)
+    if (!Number.isFinite(id)) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const m = await gameApi.getMatch(id, accessToken)
+        const selfId = parseUserIdFromAccessToken(accessToken)
+        const names = await fetchUsersByIds(accessToken, m.playerIds)
+        if (cancelled) return
+        const selfGuest = parseIsGuestFromAccessToken(accessToken)
+        if (selfId != null) {
+          const sp = names.get(selfId)
+          setSelfUsername(formatPlayerLine(sp, resolveDisplayName(accessToken), selfGuest))
+        } else {
+          setSelfUsername(formatPlayerLine(undefined, resolveDisplayName(accessToken), selfGuest))
+        }
+        const oppId = m.playerIds.find((p) => p !== selfId)
+        if (oppId != null) {
+          const op = names.get(oppId)
+          setOpponentUsername(formatPlayerLine(op, `Player ${oppId}`, op?.guest ?? false))
+        } else {
+          setOpponentUsername('Opponent')
+        }
+      } catch {
+        if (!cancelled) {
+          setSelfUsername(resolveDisplayName(accessToken))
+          setOpponentUsername('Opponent')
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [matchId, accessToken, isTutorialMode])
 
   useEffect(() => {
-    if (!pvReplayArmed || !battleResult) return
+    if (isTutorialMode) {
+      setBattleRestoreDone(true)
+      return
+    }
+    if (!accessToken || !matchId || battleRestoreDone) return
+    const id = parseInt(matchId, 10)
+    if (!Number.isFinite(id)) {
+      setBattleRestoreDone(true)
+      return
+    }
+    const raw = sessionStorage.getItem(battleSessionKey)
+    if (!raw) {
+      setBattleRestoreDone(true)
+      return
+    }
+    const endsAt = Number(raw)
+    if (!Number.isFinite(endsAt) || endsAt <= Date.now()) {
+      sessionStorage.removeItem(battleSessionKey)
+      setBattleRestoreDone(true)
+      return
+    }
+
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await gameApi.evaluateBattleRound(id, accessToken)
+        if (cancelled) return
+        if (res.battleViewEndsAt > Date.now()) {
+          setBattlePending(false)
+          setShopPhaseEndsAtMs(null)
+          setRoundTimeLeft(0)
+          setBattleResult(res)
+          setBattleError('')
+          setPlayerHp(res.currentUserIsWhite ? res.whiteHp : res.blackHp)
+          setPlayerHpMax((prev) =>
+            Math.max(prev, res.currentUserIsWhite ? res.whiteHp : res.blackHp, GAME_HP_MAX),
+          )
+          setPhase('battle')
+          sessionStorage.setItem(battleSessionKey, String(res.battleViewEndsAt))
+        } else {
+          sessionStorage.removeItem(battleSessionKey)
+        }
+      } catch {
+        sessionStorage.removeItem(battleSessionKey)
+      } finally {
+        if (!cancelled) setBattleRestoreDone(true)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [accessToken, matchId, battleRestoreDone, battleSessionKey, isTutorialMode])
+
+  /** Client extends the replay window when the evaluate response arrives late so PV does not skip ahead. */
+  const matchBattleTimeline = useMemo(() => {
+    if (isTutorialMode || !battleResult) return null
     const pv = Array.isArray(battleResult.principalVariation) ? battleResult.principalVariation : []
     const cap = Math.min(PV_REPLAY_MAX_PLIES, pv.length)
-    if (cap === 0) return undefined
+    const fullWindowMs =
+      PV_REPLAY_DELAY_MS + cap * BATTLE_VIEW_STEP_MS + BATTLE_END_PAUSE_MS + BATTLE_VIEW_SAFETY_BUFFER_MS
+    const effectiveEndsAt = Math.max(battleResult.battleViewEndsAt, Date.now() + fullWindowMs)
+    const replayStartMs = effectiveEndsAt - fullWindowMs
+    return { cap, fullWindowMs, effectiveEndsAt, replayStartMs }
+  }, [battleResult, isTutorialMode])
 
-    const replayEndsAtMs = Math.max(Date.now(), battleResult.battleViewEndsAt - BATTLE_END_PAUSE_MS)
-    const remainingMs = Math.max(1, replayEndsAtMs - Date.now())
-    const syncedStepMs = Math.max(120, Math.floor(remainingMs / cap))
-    let current = 0
-    const id = window.setInterval(() => {
-      current += 1
-      setPvMovesApplied(current)
-      if (current >= cap) window.clearInterval(id)
-    }, syncedStepMs)
+  /** Drive replay; timeline matches backend but never runs ahead of when the UI received the battle payload. */
+  useEffect(() => {
+    if (phase !== 'battle' || !matchBattleTimeline) return
+    const { cap, replayStartMs } = matchBattleTimeline
+    if (cap === 0) {
+      setPvMovesApplied(0)
+      return
+    }
+    const computePlies = () => {
+      const elapsedMs = Date.now() - replayStartMs - PV_REPLAY_DELAY_MS
+      const plies = Math.max(0, Math.min(cap, Math.floor(elapsedMs / BATTLE_VIEW_STEP_MS)))
+      setPvMovesApplied(plies)
+    }
+    computePlies()
+    const id = window.setInterval(computePlies, 250)
     return () => window.clearInterval(id)
-  }, [pvReplayArmed, battleResult])
+  }, [phase, matchBattleTimeline])
+
+  useEffect(() => {
+    if (phase !== 'battle') {
+      battleReplayPlySoundRef.current = -1
+      return
+    }
+    const prev = battleReplayPlySoundRef.current
+    battleReplayPlySoundRef.current = pvMovesApplied
+    if (prev >= 0 && pvMovesApplied > prev) {
+      playBattleReplayMoveSound()
+    }
+  }, [phase, pvMovesApplied])
+
+  useEffect(() => {
+    if (!isTutorialMode || !tutorialInBattle) {
+      tutorialReplayPlySoundRef.current = -1
+      return
+    }
+    const prev = tutorialReplayPlySoundRef.current
+    tutorialReplayPlySoundRef.current = tutorialPvMovesApplied
+    if (prev >= 0 && tutorialPvMovesApplied > prev) {
+      playBattleReplayMoveSound()
+    }
+  }, [isTutorialMode, tutorialInBattle, tutorialPvMovesApplied])
 
   const battleBoardDisplay = useMemo(() => {
     if (!battleResult) return null
@@ -342,14 +531,18 @@ export function Game({ mode = 'normal' }: GameProps) {
     return () => window.clearInterval(id)
   }, [phase, shopPhaseEndsAtMs, battlePending])
 
+  /**
+   * Run battle evaluate when the shop deadline has passed (`battlePending`). Omits `shopPhaseEndsAtMs` from deps so
+   * /shop polling cannot cancel an in-flight request when the shared deadline jumps after the opponent applies the round.
+   * No `battleRequestRef` mutex: React Strict Mode remount can leave the mutex true while the second effect bails and
+   * never starts a request, leaving the player stuck in shop with a fake timer.
+   */
   useEffect(() => {
     if (phase !== 'shop' || !battlePending || shopPhaseEndsAtMs == null) return
     if (!accessToken || !matchId) return
-    if (battleRequestRef.current) return
     const id = parseInt(matchId, 10)
     if (!Number.isFinite(id)) return
 
-    battleRequestRef.current = true
     let cancelled = false
     void (async () => {
       try {
@@ -361,13 +554,16 @@ export function Game({ mode = 'normal' }: GameProps) {
           setBattleResult(res)
           setBattleError('')
           setPlayerHp(res.currentUserIsWhite ? res.whiteHp : res.blackHp)
-          setPlayerHpMax((prev) => Math.max(prev, res.currentUserIsWhite ? res.whiteHp : res.blackHp, 100))
+          setPlayerHpMax((prev) =>
+            Math.max(prev, res.currentUserIsWhite ? res.whiteHp : res.blackHp, GAME_HP_MAX),
+          )
+          playBattleStartSound()
           setPhase('battle')
+          sessionStorage.setItem(battleSessionKey, String(res.battleViewEndsAt))
         }
       } catch (e) {
         if (!cancelled) {
           setBattleError(e instanceof Error ? e.message : 'Could not run battle evaluation')
-          battleRequestRef.current = false
           window.setTimeout(() => {
             setBattleEvalRetryTick((n) => n + 1)
           }, BATTLE_EVAL_RETRY_MS)
@@ -377,13 +573,19 @@ export function Game({ mode = 'normal' }: GameProps) {
     return () => {
       cancelled = true
     }
-  }, [phase, roundTimeLeft, shopPhaseEndsAtMs, accessToken, matchId, battleEvalRetryTick])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- omit shopPhaseEndsAtMs so poll/timer server updates cannot abort this fetch
+  }, [phase, battlePending, accessToken, matchId, battleEvalRetryTick, battleSessionKey])
 
   const syncShopFromServer = useCallback(
     async (id: number, token: string, opts?: { applyShopTimer?: boolean }) => {
+      const requestId = ++shopSyncRequestIdRef.current
       const shop = await gameApi.getShop(id, token)
+      if (requestId !== shopSyncRequestIdRef.current) return
+      // While waiting for evaluate/battle, never pull a new deadline from /shop — it can jump when the other
+      // client finalizes the round (replay end + 30s) and would both mislead the countdown and retrigger effects.
       const applyTimer =
-        opts?.applyShopTimer === true || (phaseRef.current === 'shop' && !battlePending)
+        !battlePending &&
+        (opts?.applyShopTimer === true || phaseRef.current === 'shop')
       if (applyTimer) {
         setShopPhaseEndsAtMs(shop.shopPhaseEndsAt)
         setRoundTimeLeft(Math.max(0, Math.ceil((shop.shopPhaseEndsAt - Date.now()) / 1000)))
@@ -409,9 +611,43 @@ export function Game({ mode = 'normal' }: GameProps) {
       applyBenchFromApi(shop.bench)
       applyBoardFromApi(shop.board)
       setKingSquare({ col: shop.king.x, row: shop.king.y })
+      try {
+        const meta = await gameApi.getMatch(id, token)
+        if (requestId !== shopSyncRequestIdRef.current) return
+        if (meta.status === 'FINISHED') {
+          const uid = parseUserIdFromAccessToken(token)
+          const wid = meta.winnerUserId
+          const won = uid != null && wid != null && uid === wid
+          setMatchEndOverlay(matchEndRatingOverlay(won, token))
+        }
+      } catch {
+        /* match row may be briefly inconsistent during transitions */
+      }
       setShopError('')
     },
     [applyBenchFromApi, applyBoardFromApi, battlePending],
+  )
+
+  /** When mutation fails because DB says FINISHED, show overlay instead of a flickering banner. */
+  const applyFinishedMatchFromServerError = useCallback(
+    async (id: number, token: string, err: unknown): Promise<boolean> => {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (!/match has ended/i.test(msg)) return false
+      try {
+        const m = await gameApi.getMatch(id, token)
+        if (m.status === 'FINISHED') {
+          const uid = parseUserIdFromAccessToken(token)
+          const wid = m.winnerUserId
+          const won = uid != null && wid != null && uid === wid
+          setMatchEndOverlay(matchEndRatingOverlay(won, token))
+          return true
+        }
+      } catch {
+        /* ignore */
+      }
+      return false
+    },
+    [],
   )
 
   const returnToShopAfterBattle = useCallback(
@@ -422,52 +658,106 @@ export function Game({ mode = 'normal' }: GameProps) {
       setPhase('shop')
       setBattlePending(false)
       setShopPhaseEndsAtMs(null)
+      sessionStorage.removeItem(battleSessionKey)
       void syncShopFromServer(id, token, { applyShopTimer: true }).catch(() => {
         /* shop polling will retry */
       })
     },
-    [syncShopFromServer],
+    [syncShopFromServer, battleSessionKey],
   )
 
-  useEffect(() => {
-    if (phase !== 'battle' || !battleResult || !accessToken || !matchId) return
+  const resignMatch = useCallback(async () => {
+    if (!accessToken || !matchId) return
+    const accepted = window.confirm('Are you sure you want to resign this match?')
+    if (!accepted) return
     const id = parseInt(matchId, 10)
     if (!Number.isFinite(id)) return
     const token = accessToken
-    const maxWaitMs = Math.max(0, battleResult.battleViewEndsAt - Date.now())
+    try {
+      await gameApi.resignMatch(id, token)
+      battleRequestRef.current = false
+      sessionStorage.removeItem(battleSessionKey)
+      setBattleResult(null)
+      setBattleError('')
+      setPhase('shop')
+      setBattlePending(false)
+      setShopPhaseEndsAtMs(null)
+      setRoundTimeLeft(0)
+      setMatchEndOverlay(matchEndRatingOverlay(false, token))
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Could not resign'
+      if (phaseRef.current === 'battle') setBattleError(msg)
+      else setShopError(msg)
+    }
+  }, [accessToken, matchId, battleSessionKey])
+
+  useEffect(() => {
+    if (phase !== 'battle' || !battleResult || !matchBattleTimeline || !accessToken || !matchId) return
+    const id = parseInt(matchId, 10)
+    if (!Number.isFinite(id)) return
+    const token = accessToken
+    const maxWaitMs = Math.max(0, matchBattleTimeline.effectiveEndsAt - Date.now())
     const t = window.setTimeout(() => {
       if (phaseRef.current !== 'battle') return
-      returnToShopAfterBattle(id, token)
+      if (battleResult.matchFinished) {
+        battleRequestRef.current = false
+        sessionStorage.removeItem(battleSessionKey)
+        const uid = parseUserIdFromAccessToken(token)
+        const wid = battleResult.winnerUserId
+        const won =
+          uid != null && wid != null ? uid === wid : false
+        setMatchEndOverlay(matchEndRatingOverlay(won, token))
+      } else {
+        returnToShopAfterBattle(id, token)
+      }
     }, maxWaitMs)
     return () => window.clearTimeout(t)
-  }, [phase, battleResult, accessToken, matchId, returnToShopAfterBattle])
+  }, [
+    phase,
+    battleResult,
+    matchBattleTimeline,
+    accessToken,
+    matchId,
+    returnToShopAfterBattle,
+    battleSessionKey,
+  ])
 
   const endSellableDrag = useCallback(() => {
     setSellBinVisible(false)
     setSellBinOver(false)
   }, [])
 
-  const handleTutorialPlaceFromBench = useCallback((col: number, row: number, benchSlot: number) => {
-    if (row < TUTORIAL_MIN_ROW || row > TUTORIAL_MAX_ROW) {
-      setShopError('Pieces may only be placed on ranks 1-4.')
-      return
-    }
-    setTutorialBenchSlots((prev) => {
-      if (benchSlot < 0 || benchSlot >= prev.length || prev[benchSlot] == null) return prev
-      const piece = prev[benchSlot]
-      if (piece === 'pawn' && (row < PAWN_RANK_ROWS_MIN || row > PAWN_RANK_ROWS_MAX)) {
-        setShopError('Pawns may only be placed on ranks 2-4.')
-        return prev
+  const handleTutorialPlaceFromBench = useCallback(
+    (col: number, row: number, benchSlot: number) => {
+      if (row < TUTORIAL_MIN_ROW || row > TUTORIAL_MAX_ROW) {
+        setShopError('Pieces may only be placed on ranks 1-4.')
+        return
       }
-      const nextBench = [...prev]
-      nextBench[benchSlot] = null
-      setTutorialBoardPieces((prevBoard) => {
-        const withoutTarget = prevBoard.filter((p) => !(p.col === col && p.row === row))
-        return [...withoutTarget, { col, row, piece }]
+      if (friendlyBlocksShopSquare(col, row, tutorialKingSquare, tutorialBoardPieces, null)) {
+        setShopError('That square is already occupied.')
+        return
+      }
+      if (tutorialEnemyOccupiesSquare(col, row, tutorialEnemyPieces)) {
+        setShopError('You cannot place on an enemy square.')
+        return
+      }
+      setTutorialBenchSlots((prev) => {
+        if (benchSlot < 0 || benchSlot >= prev.length || prev[benchSlot] == null) return prev
+        const piece = prev[benchSlot]
+        if (piece === 'pawn' && (row < PAWN_RANK_ROWS_MIN || row > PAWN_RANK_ROWS_MAX)) {
+          setShopError('Pawns may only be placed on ranks 2-4.')
+          return prev
+        }
+        const nextBench = [...prev]
+        nextBench[benchSlot] = null
+        playPieceMoveSound()
+        setTutorialBoardPieces((prevBoard) => [...prevBoard, { col, row, piece }])
+        setShopError('')
+        return nextBench
       })
-      return nextBench
-    })
-  }, [])
+    },
+    [tutorialKingSquare, tutorialBoardPieces, tutorialEnemyPieces],
+  )
 
   const handleTutorialMoveBoardPiece = useCallback(
     (fromCol: number, fromRow: number, toCol: number, toRow: number) => {
@@ -482,21 +772,47 @@ export function Game({ mode = 'normal' }: GameProps) {
           setShopError('Pawns may only be moved within ranks 2-4.')
           return prev
         }
-        const kept = prev.filter(
-          (p) =>
-            !(p.col === fromCol && p.row === fromRow) &&
-            !(p.col === toCol && p.row === toRow),
-        )
+        if (tutorialEnemyOccupiesSquare(toCol, toRow, tutorialEnemyPieces)) {
+          setShopError('You cannot move onto an enemy square.')
+          return prev
+        }
+        if (
+          friendlyBlocksShopSquare(toCol, toRow, tutorialKingSquare, prev, {
+            col: fromCol,
+            row: fromRow,
+          })
+        ) {
+          setShopError('That square is already occupied.')
+          return prev
+        }
+        const kept = prev.filter((p) => !(p.col === fromCol && p.row === fromRow))
+        playPieceMoveSound()
         setShopError('')
         return [...kept, { col: toCol, row: toRow, piece: moving.piece }]
       })
     },
-    [],
+    [tutorialKingSquare, tutorialEnemyPieces],
   )
 
-  const handleTutorialMoveKing = useCallback((toCol: number, toRow: number) => {
-    setTutorialKingSquare({ col: toCol, row: toRow })
-  }, [])
+  const handleTutorialMoveKing = useCallback(
+    (toCol: number, toRow: number) => {
+      setTutorialKingSquare((prev) => {
+        if (prev.col === toCol && prev.row === toRow) return prev
+        if (tutorialEnemyOccupiesSquare(toCol, toRow, tutorialEnemyPieces)) {
+          setShopError('You cannot move onto an enemy square.')
+          return prev
+        }
+        if (tutorialBoardPieces.some((p) => p.col === toCol && p.row === toRow)) {
+          setShopError('That square is already occupied.')
+          return prev
+        }
+        playPieceMoveSound()
+        setShopError('')
+        return { col: toCol, row: toRow }
+      })
+    },
+    [tutorialBoardPieces, tutorialEnemyPieces],
+  )
 
   const handleTutorialSellDrop = useCallback((e: DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -659,6 +975,7 @@ export function Game({ mode = 'normal' }: GameProps) {
     if (!isTutorialMode) return
     if (showTutorialComplete) return
     if (tutorialRoundTimeLeft === 0) {
+      playBattleStartSound()
       setTutorialInBattle(true)
     }
   }, [isTutorialMode, tutorialRoundTimeLeft, showTutorialComplete])
@@ -727,39 +1044,49 @@ export function Game({ mode = 'normal' }: GameProps) {
   }, [isTutorialMode, tutorialInBattle, tutorialBattleState, tutorialEvalHintAcknowledged])
 
   useEffect(() => {
-    if (!accessToken || !matchId || phase !== 'shop') return
+    if (!accessToken || !matchId || phase !== 'shop' || !battleRestoreDone) return
+    if (matchEndOverlay) return
     const id = parseInt(matchId, 10)
     if (!Number.isFinite(id)) {
       setShopError('Invalid match id')
       return
     }
     let cancelled = false
-    const loadShop = async () => {
+    const loadShop = async (force = false) => {
       try {
+        if (!force && document.visibilityState !== 'visible') return
         if (cancelled) return
-        await syncShopFromServer(id, accessToken)
+        await syncShopFromServer(id, accessToken, { applyShopTimer: true })
       } catch (e) {
         if (!cancelled) setShopError(e instanceof Error ? e.message : 'Could not load shop')
       }
     }
-    void loadShop()
+    void loadShop(true)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void loadShop(true)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
     const pollId = window.setInterval(() => {
       void loadShop()
-    }, 4000)
+    }, 10000)
     return () => {
       cancelled = true
+      document.removeEventListener('visibilitychange', onVisible)
       window.clearInterval(pollId)
     }
-  }, [accessToken, matchId, phase, syncShopFromServer])
+  }, [accessToken, matchId, phase, syncShopFromServer, battleRestoreDone, matchEndOverlay])
 
   const handleBuy = async (piece: ShopPiece) => {
-    if (!accessToken || !matchId || buyingPiece) return
+    if (!accessToken || !matchId || buyingPiece || shopInteractionsLocked) return
     const id = parseInt(matchId, 10)
     if (!Number.isFinite(id)) return
     setBuyingPiece(piece)
     setShopError('')
     try {
       const res = await gameApi.buyPiece(id, piece, accessToken)
+      shopSyncRequestIdRef.current += 1
       setPawnMoney(res.moneyAfter)
       setPawnMoneyCap((prev) => Math.max(prev, res.moneyAfter, res.moneyBefore))
       setShopAffordable((prev) => {
@@ -773,29 +1100,93 @@ export function Game({ mode = 'normal' }: GameProps) {
         return next
       })
     } catch (e) {
+      if (await applyFinishedMatchFromServerError(id, accessToken, e)) return
       setShopError(e instanceof Error ? e.message : 'Could not buy piece')
     } finally {
       setBuyingPiece(null)
     }
   }
 
-  const refreshShopLayout = async (id: number, token: string) => {
+  const applyShopLayoutFromResponse = useCallback(
+    (shop: ShopStateResponse) => {
+      if (phaseRef.current === 'shop' && !battlePending) {
+        setShopPhaseEndsAtMs(shop.shopPhaseEndsAt)
+        setRoundTimeLeft(Math.max(0, Math.ceil((shop.shopPhaseEndsAt - Date.now()) / 1000)))
+      }
+      setPawnMoney(shop.money)
+      setPawnMoneyCap((prev) => Math.max(prev, shop.money))
+      setPlayerHp(shop.hp)
+      setPlayerHpMax((prev) => Math.max(prev, shop.hpMax, 1))
+      const nextCosts: Record<ShopPiece, number> = { pawn: 1, knight: 3, bishop: 3, rook: 5, queen: 8 }
+      const nextAffordable: Record<ShopPiece, boolean> = {
+        pawn: false,
+        knight: false,
+        bishop: false,
+        rook: false,
+        queen: false,
+      }
+      for (const item of shop.items) {
+        nextCosts[item.piece] = item.cost
+        nextAffordable[item.piece] = item.affordable
+      }
+      setShopCosts(nextCosts)
+      setShopAffordable(nextAffordable)
+      applyBenchFromApi(shop.bench)
+      applyBoardFromApi(shop.board)
+      setKingSquare({ col: shop.king.x, row: shop.king.y })
+    },
+    [applyBenchFromApi, applyBoardFromApi, battlePending],
+  )
+
+  const refreshShopLayout = useCallback(async (id: number, token: string) => {
+    const requestId = ++shopSyncRequestIdRef.current
     const shop = await gameApi.getShop(id, token)
-    if (phaseRef.current === 'shop' && !battlePending) {
-      setShopPhaseEndsAtMs(shop.shopPhaseEndsAt)
-      setRoundTimeLeft(Math.max(0, Math.ceil((shop.shopPhaseEndsAt - Date.now()) / 1000)))
-    }
-    applyBenchFromApi(shop.bench)
-    applyBoardFromApi(shop.board)
-    setKingSquare({ col: shop.king.x, row: shop.king.y })
-  }
+    if (requestId !== shopSyncRequestIdRef.current) return
+    applyShopLayoutFromResponse(shop)
+  }, [applyShopLayoutFromResponse])
+
+  /** Reconcile after a failed shop mutation without dropping on request-id races (see refreshShopLayout). */
+  const recoverShopAfterFailedMutation = useCallback(
+    async (id: number, token: string) => {
+      const shop = await gameApi.getShop(id, token)
+      applyShopLayoutFromResponse(shop)
+      shopSyncRequestIdRef.current += 1
+      try {
+        const meta = await gameApi.getMatch(id, token)
+        if (meta.status === 'FINISHED') {
+          const uid = parseUserIdFromAccessToken(token)
+          const wid = meta.winnerUserId
+          const won = uid != null && wid != null && uid === wid
+          setMatchEndOverlay(matchEndRatingOverlay(won, token))
+        }
+      } catch {
+        /* match row may be briefly inconsistent during transitions */
+      }
+    },
+    [applyShopLayoutFromResponse],
+  )
+
+  const scheduleShopLayoutRefresh = useCallback(
+    (id: number, token: string, delayMs = 650) => {
+      if (shopRefreshTimerRef.current != null) {
+        window.clearTimeout(shopRefreshTimerRef.current)
+      }
+      shopRefreshTimerRef.current = window.setTimeout(() => {
+        shopRefreshTimerRef.current = null
+        void refreshShopLayout(id, token)
+      }, delayMs)
+    },
+    [refreshShopLayout],
+  )
 
   const handlePlaceFromBench = async (col: number, row: number, benchSlot: number) => {
-    if (!accessToken || !matchId || placingPiece) return
+    if (!accessToken || !matchId || placingPiece || shopInteractionsLocked) return
     const id = parseInt(matchId, 10)
     if (!Number.isFinite(id)) return
     const token = accessToken
     const benchPiece = benchSlots[benchSlot]
+    if (!benchPiece) return
+    if (friendlyBlocksShopSquare(col, row, kingSquare, boardPieces, null)) return
     if (
       benchPiece === 'pawn' &&
       (row < PAWN_RANK_ROWS_MIN || row > PAWN_RANK_ROWS_MAX)
@@ -806,9 +1197,23 @@ export function Game({ mode = 'normal' }: GameProps) {
     setPlacingPiece(true)
     setShopError('')
     try {
+      setBenchSlots((prev) => {
+        const next = [...prev]
+        next[benchSlot] = null
+        return next
+      })
+      setBoardPieces((prev) => [...prev, { col, row, piece: benchPiece }])
+      shopSyncRequestIdRef.current += 1
       await gameApi.placePieceFromBench(id, { benchSlot, squareX: col, squareY: row }, token)
-      await refreshShopLayout(id, token)
+      playPieceMoveSound()
+      shopSyncRequestIdRef.current += 1
+      scheduleShopLayoutRefresh(id, token, 0)
     } catch (e) {
+      if (await applyFinishedMatchFromServerError(id, token, e)) {
+        setPlacingPiece(false)
+        return
+      }
+      await recoverShopAfterFailedMutation(id, token)
       setShopError(e instanceof Error ? e.message : 'Could not place piece')
     } finally {
       setPlacingPiece(false)
@@ -821,28 +1226,54 @@ export function Game({ mode = 'normal' }: GameProps) {
     toCol: number,
     toRow: number,
   ) => {
-    if (!accessToken || !matchId || placingPiece) return
+    if (!accessToken || !matchId || placingPiece || shopInteractionsLocked) return
     const id = parseInt(matchId, 10)
     if (!Number.isFinite(id)) return
     const token = accessToken
     const moved = boardPieces.find((p) => p.col === fromCol && p.row === fromRow)
+    if (!moved) return
     if (
-      moved?.piece === 'pawn' &&
+      moved.piece === 'pawn' &&
       (toRow < PAWN_RANK_ROWS_MIN || toRow > PAWN_RANK_ROWS_MAX)
     ) {
       setShopError('Pawns may only be on ranks 2–4.')
       return
     }
+    if (
+      friendlyBlocksShopSquare(toCol, toRow, kingSquare, boardPieces, {
+        col: fromCol,
+        row: fromRow,
+      })
+    )
+      return
     setPlacingPiece(true)
     setShopError('')
     try {
+      setBoardPieces((prev) => {
+        const moving = prev.find((p) => p.col === fromCol && p.row === fromRow)
+        if (!moving) return prev
+        const trimmed = prev.filter(
+          (p) =>
+            !(p.col === fromCol && p.row === fromRow) &&
+            !(p.col === toCol && p.row === toRow),
+        )
+        return [...trimmed, { ...moving, col: toCol, row: toRow }]
+      })
+      shopSyncRequestIdRef.current += 1
       await gameApi.moveBoardPiece(
         id,
         { fromX: fromCol, fromY: fromRow, toX: toCol, toY: toRow },
         token,
       )
-      await refreshShopLayout(id, token)
+      playPieceMoveSound()
+      shopSyncRequestIdRef.current += 1
+      scheduleShopLayoutRefresh(id, token, 0)
     } catch (e) {
+      if (await applyFinishedMatchFromServerError(id, token, e)) {
+        setPlacingPiece(false)
+        return
+      }
+      await recoverShopAfterFailedMutation(id, token)
       setShopError(e instanceof Error ? e.message : 'Could not move piece')
     } finally {
       setPlacingPiece(false)
@@ -850,16 +1281,26 @@ export function Game({ mode = 'normal' }: GameProps) {
   }
 
   const handleMoveKing = async (toCol: number, toRow: number) => {
-    if (!accessToken || !matchId || placingPiece) return
+    if (!accessToken || !matchId || placingPiece || shopInteractionsLocked) return
     const id = parseInt(matchId, 10)
     if (!Number.isFinite(id)) return
     const token = accessToken
+    if (boardPieces.some((p) => p.col === toCol && p.row === toRow)) return
     setPlacingPiece(true)
     setShopError('')
     try {
+      setKingSquare({ col: toCol, row: toRow })
+      shopSyncRequestIdRef.current += 1
       await gameApi.moveKing(id, { toX: toCol, toY: toRow }, token)
-      await refreshShopLayout(id, token)
+      playPieceMoveSound()
+      shopSyncRequestIdRef.current += 1
+      scheduleShopLayoutRefresh(id, token, 0)
     } catch (e) {
+      if (await applyFinishedMatchFromServerError(id, token, e)) {
+        setPlacingPiece(false)
+        return
+      }
+      await recoverShopAfterFailedMutation(id, token)
       setShopError(e instanceof Error ? e.message : 'Could not move king')
     } finally {
       setPlacingPiece(false)
@@ -873,7 +1314,7 @@ export function Game({ mode = 'normal' }: GameProps) {
   const handleSellDrop = async (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault()
     setSellBinOver(false)
-    if (!accessToken || !matchId || placingPiece) return
+    if (!accessToken || !matchId || placingPiece || shopInteractionsLocked) return
     const id = parseInt(matchId, 10)
     if (!Number.isFinite(id)) return
     const payload = parsePieceDragPayload(e.dataTransfer)
@@ -883,16 +1324,42 @@ export function Game({ mode = 'normal' }: GameProps) {
     setShopError('')
     try {
       if (payload.source === 'bench') {
-        await gameApi.sellPiece(id, { benchSlot: payload.benchSlot }, accessToken)
+        setBenchSlots((prev) => {
+          const next = [...prev]
+          next[payload.benchSlot] = null
+          return next
+        })
       } else {
-        await gameApi.sellPiece(
+        setBoardPieces((prev) =>
+          prev.filter((p) => !(p.col === payload.fromCol && p.row === payload.fromRow)),
+        )
+      }
+      shopSyncRequestIdRef.current += 1
+      let sellRes: Awaited<ReturnType<typeof gameApi.sellPiece>>
+      if (payload.source === 'bench') {
+        sellRes = await gameApi.sellPiece(id, { benchSlot: payload.benchSlot }, accessToken)
+      } else {
+        sellRes = await gameApi.sellPiece(
           id,
           { fromX: payload.fromCol, fromY: payload.fromRow },
           accessToken,
         )
       }
-      await syncShopFromServer(id, accessToken)
+      setPawnMoney(sellRes.moneyAfter)
+      setPawnMoneyCap((prev) => Math.max(prev, sellRes.moneyAfter, sellRes.moneyBefore))
+      setShopAffordable((prev) => {
+        const next = { ...prev }
+        for (const p of SHOP_ORDER) next[p] = sellRes.moneyAfter >= shopCosts[p]
+        return next
+      })
+      shopSyncRequestIdRef.current += 1
+      scheduleShopLayoutRefresh(id, accessToken, 0)
     } catch (err) {
+      if (await applyFinishedMatchFromServerError(id, accessToken, err)) {
+        setPlacingPiece(false)
+        return
+      }
+      await recoverShopAfterFailedMutation(id, accessToken)
       setShopError(err instanceof Error ? err.message : 'Could not sell piece')
     } finally {
       setPlacingPiece(false)
@@ -953,11 +1420,21 @@ export function Game({ mode = 'normal' }: GameProps) {
         <div className={gameStyle.boardArea}>
           <div className={gameStyle.boardWithHp}>
             <div className={gameStyle.boardColumn}>
+              <p className={gameStyle.matchPlayersBanner} aria-label="Tutorial match">
+                <span className={gameStyle.matchPlayerName}>You</span>
+                <span className={gameStyle.matchPlayersVs}>vs</span>
+                <span className={gameStyle.matchPlayerName}>Trainer</span>
+              </p>
+              {!tutorialInBattle && shopError ? (
+                <p className={gameStyle.shopFeedback} role="alert" aria-live="polite">
+                  {shopError}
+                </p>
+              ) : null}
               <div className={gameStyle.boardShell}>
                 {!tutorialInBattle ? (
                   <div className={gameStyle.leftBars}>
                     <aside className={gameStyle.hpPanel} aria-label="Player HP">
-                      <div className={gameStyle.hpValue}>100</div>
+                      <div className={gameStyle.hpValue}>{GAME_HP_MAX}</div>
                       <div className={gameStyle.hpTrack}>
                         <div className={gameStyle.hpFill} style={{ height: '100%' }} />
                       </div>
@@ -1000,7 +1477,7 @@ export function Game({ mode = 'normal' }: GameProps) {
                 ) : (
                   <div className={gameStyle.leftBarsBattle}>
                     <div className={gameStyle.hpBattleCluster}>
-                      <div className={gameStyle.hpBattleValue}>100</div>
+                      <div className={gameStyle.hpBattleValue}>{GAME_HP_MAX}</div>
                       <div className={gameStyle.hpAndEvalRow}>
                         {showTutorialEvalHint ? (
                           <div className={gameStyle.tutorialEvalHint} role="dialog" aria-modal="true" aria-label="Tutorial eval hint">
@@ -1037,6 +1514,7 @@ export function Game({ mode = 'normal' }: GameProps) {
                         className={lobbyBoardStyle.boardCompact}
                         kingSquare={tutorialKingSquare}
                         placedPieces={tutorialBoardPieces}
+                        shadeOpponentRanks
                         onDropBenchOnSquare={handleTutorialPlaceFromBench}
                         onMoveBoardPiece={handleTutorialMoveBoardPiece}
                         onMoveKing={handleTutorialMoveKing}
@@ -1270,7 +1748,7 @@ export function Game({ mode = 'normal' }: GameProps) {
                         aria-label="Knight and bishop shop hint"
                       >
                         <p className={gameStyle.tutorialKnightBishopHintText}>
-                          Here are the knight and bishop. Each costs 3 pawns—you can buy them when you have enough.
+                          Here are the knight and bishop. Each costs 3 pawns - you can buy them when you have enough.
                         </p>
                         <button
                           type="button"
@@ -1339,7 +1817,6 @@ export function Game({ mode = 'normal' }: GameProps) {
                           ))}
                         </div>
                       </div>
-                      {shopError && <p className={style.error}>{shopError}</p>}
                     </div>
                   </div>
                 </div>
@@ -1354,12 +1831,65 @@ export function Game({ mode = 'normal' }: GameProps) {
 
   return (
     <div className={gameStyle.page}>
+      {matchEndOverlay ? (
+        <div
+          className={gameStyle.matchEndOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="match-end-title"
+        >
+          <div className={gameStyle.matchEndCard}>
+            <h2 id="match-end-title" className={gameStyle.matchEndTitle}>
+              {matchEndOverlay.won ? 'You won' : 'You lost'}
+            </h2>
+            {!matchEndOverlay.won ? (
+              <p className={gameStyle.matchEndHint}>Your opponent won this match.</p>
+            ) : null}
+            {matchEndOverlay.ratingDelta != null ? (
+              <p className={gameStyle.matchEndHint}>
+                Rating {matchEndOverlay.ratingDelta > 0 ? '+' : ''}
+                {matchEndOverlay.ratingDelta}
+              </p>
+            ) : null}
+            <p className={gameStyle.matchEndHint}>The match is finished.</p>
+            <button
+              type="button"
+              className={gameStyle.matchEndButton}
+              onClick={() => navigate('/', { replace: true })}
+            >
+              Back to menu
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className={gameStyle.boardArea}>
         <div className={gameStyle.boardWithHp}>
-          <div className={gameStyle.boardColumn}>
+            <div className={gameStyle.boardColumn}>
+            {phase === 'shop' ? (
+              <p className={gameStyle.matchPlayersBanner} aria-label="Match players">
+                <span className={gameStyle.matchPlayerSelf}>
+                  <span
+                    className={gameStyle.matchPlayerName}
+                    title={selfUsername || resolveDisplayName(accessToken)}
+                  >
+                    {selfUsername || resolveDisplayName(accessToken)}
+                  </span>
+                  <span className={gameStyle.matchYouSuffix}> (you)</span>
+                </span>
+                <span className={gameStyle.matchPlayersVs}>vs</span>
+                <span className={gameStyle.matchPlayerOpponentSlot}>
+                  <span className={gameStyle.matchPlayerName} title={opponentUsername || 'Opponent'}>
+                    {opponentUsername || '…'}
+                  </span>
+                </span>
+              </p>
+            ) : null}
             {phase === 'battle' && battleResult && battleBoardDisplay ? (
               <p className={gameStyle.battleSceneHeader}>
-                Battle — you are{' '}
+                <span className={gameStyle.matchRivalryInline}>
+                  {selfUsername || resolveDisplayName(accessToken)} vs {opponentUsername || 'Opponent'}
+                </span>{' '}
+                - you are{' '}
                 <strong>{battleResult.currentUserIsWhite ? 'White' : 'Black'}</strong>
               </p>
             ) : null}
@@ -1430,10 +1960,11 @@ export function Game({ mode = 'normal' }: GameProps) {
                       className={lobbyBoardStyle.boardCompact}
                       kingSquare={kingSquare}
                       placedPieces={boardPieces}
+                      shadeOpponentRanks
                       onDropBenchOnSquare={handlePlaceFromBench}
                       onMoveBoardPiece={handleMoveBoardPiece}
                       onMoveKing={handleMoveKing}
-                      placementDisabled={placingPiece}
+                      placementDisabled={placingPiece || shopInteractionsLocked}
                       onSellablePieceDragStart={startSellableDrag}
                       onSellablePieceDragEnd={endSellableDrag}
                     />
@@ -1478,19 +2009,12 @@ export function Game({ mode = 'normal' }: GameProps) {
                     {phase === 'shop' ? 'Round timer' : 'Phase'}
                   </span>
                   <span className={gameStyle.roundTimerValue}>
-                    {phase === 'shop' ? formatRoundTime(roundTimeLeft) : '—'}
+                    {phase === 'shop' ? formatRoundTime(roundTimeLeft) : '-'}
                   </span>
                 </div>
                 {phase === 'shop' ? (
                   <div className={gameStyle.matchButtons}>
-                    <button
-                      type="button"
-                      className={gameStyle.resignButton}
-                      onClick={() => {
-                        const accepted = window.confirm('Are you sure you want to resign this match?')
-                        if (accepted) navigate('/', { replace: true })
-                      }}
-                    >
+                    <button type="button" className={gameStyle.resignButton} onClick={() => void resignMatch()}>
                       Resign
                     </button>
                     <button
@@ -1536,6 +2060,12 @@ export function Game({ mode = 'normal' }: GameProps) {
                       <span className={gameStyle.sellBinLabel}>Sell</span>
                     </div>
                   </div>
+                ) : phase === 'battle' ? (
+                  <div className={gameStyle.matchButtons}>
+                    <button type="button" className={gameStyle.resignButton} onClick={() => void resignMatch()}>
+                      Resign
+                    </button>
+                  </div>
                 ) : null}
               </aside>
             </div>
@@ -1553,10 +2083,10 @@ export function Game({ mode = 'normal' }: GameProps) {
                           src={PIECE_SPRITES[piece]}
                           alt=""
                           aria-hidden
-                          className={`${gameStyle.benchPiece} ${!placingPiece ? gameStyle.benchPieceDraggable : ''}`}
-                          draggable={!placingPiece}
+                          className={`${gameStyle.benchPiece} ${!placingPiece && !shopInteractionsLocked ? gameStyle.benchPieceDraggable : ''}`}
+                          draggable={!placingPiece && !shopInteractionsLocked}
                           onDragStart={
-                            !placingPiece
+                            !placingPiece && !shopInteractionsLocked
                               ? (e) => {
                                   assignSpriteDragPreviewCanvas(e.nativeEvent, e.currentTarget)
                                   setBenchDragData(e.dataTransfer, i)
@@ -1564,7 +2094,7 @@ export function Game({ mode = 'normal' }: GameProps) {
                                 }
                               : undefined
                           }
-                          onDragEnd={!placingPiece ? () => endSellableDrag() : undefined}
+                          onDragEnd={!placingPiece && !shopInteractionsLocked ? () => endSellableDrag() : undefined}
                         />
                       ) : null}
                     </div>
@@ -1580,7 +2110,9 @@ export function Game({ mode = 'normal' }: GameProps) {
                           className={gameStyle.shopItem}
                           aria-label={piece}
                           onClick={() => void handleBuy(piece)}
-                          disabled={!shopAffordable[piece] || buyingPiece !== null}
+                          disabled={
+                            !shopAffordable[piece] || buyingPiece !== null || shopInteractionsLocked
+                          }
                           title={`Cost: ${shopCosts[piece]}`}
                         >
                           <img src={PIECE_SPRITES[piece]} alt="" aria-hidden className={gameStyle.shopPieceImage} />
@@ -1588,7 +2120,6 @@ export function Game({ mode = 'normal' }: GameProps) {
                       ))}
                     </div>
                   </div>
-                  {shopError && <p className={style.error}>{shopError}</p>}
                 </div>
               </>
             ) : null}

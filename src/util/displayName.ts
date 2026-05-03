@@ -21,15 +21,15 @@ export function parseUsernameFromAccessToken(accessToken: string | null): string
 
 export function setStoredDisplayName(name: string) {
   const t = name.trim()
-  if (t) localStorage.setItem(STORAGE_KEY, t)
+  if (t) sessionStorage.setItem(STORAGE_KEY, t)
 }
 
 export function clearStoredDisplayName() {
-  localStorage.removeItem(STORAGE_KEY)
+  sessionStorage.removeItem(STORAGE_KEY)
 }
 
 export function getStoredDisplayName(): string | null {
-  const s = localStorage.getItem(STORAGE_KEY)
+  const s = sessionStorage.getItem(STORAGE_KEY)
   return s?.trim() ? s.trim() : null
 }
 

@@ -5,14 +5,14 @@ import style from './Pages.module.css'
 
 export function Login() {
   const navigate = useNavigate()
-  const { login, accessToken, playAsGuest } = useAuth()
+  const { login, accessToken, isGuest, playAsGuest } = useAuth()
   const [emailOrUsername, setEmailOrUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [guestLoading, setGuestLoading] = useState(false)
 
-  if (accessToken) {
+  if (accessToken && !isGuest) {
     navigate('/', { replace: true })
     return null
   }

@@ -69,7 +69,7 @@ type PieceDragPayload =
 
  * grab that can include neighbouring pieces (especially identical pawn sprites).
 
- * Does not hide the source — hiding broke drops in some browsers.
+ * Does not hide the source - hiding broke drops in some browsers.
 
  */
 
@@ -181,10 +181,13 @@ type Props = {
 
   placementDisabled?: boolean
 
-  /** Fired when a board piece (not the king) starts/ends a drag — e.g. to show a sell bin near the shop. */
+  /** Fired when a board piece (not the king) starts/ends a drag - e.g. to show a sell bin near the shop. */
   onSellablePieceDragStart?: () => void
 
   onSellablePieceDragEnd?: () => void
+
+  /** Dim ranks 5–8 (rows 0–3 from White POV) during shop - cannot place there. */
+  shadeOpponentRanks?: boolean
 
 }
 
@@ -290,6 +293,8 @@ export function LobbyChessBoard({
 
   onSellablePieceDragEnd,
 
+  shadeOpponentRanks = false,
+
 }: Props) {
 
   const kingCol =
@@ -328,7 +333,7 @@ export function LobbyChessBoard({
 
       const placed = placedPieces.find((p) => p.col === col && p.row === row)
 
-
+      const opponentRankBand = shadeOpponentRanks && row < KING_RANK_ROWS_MIN
 
       squares.push(
 
@@ -336,7 +341,7 @@ export function LobbyChessBoard({
 
           key={`${row}-${col}`}
 
-          className={`${boardStyle.square} ${light ? boardStyle.light : boardStyle.dark} ${droppable ? boardStyle.droppable : ''}`}
+          className={`${boardStyle.square} ${light ? boardStyle.light : boardStyle.dark} ${droppable ? boardStyle.droppable : ''} ${opponentRankBand ? boardStyle.squareOpponentRankBand : ''}`}
 
           onDragOver={
 
@@ -346,7 +351,7 @@ export function LobbyChessBoard({
 
                   e.preventDefault()
 
-                  e.dataTransfer.dropEffect = 'move'
+                  e.dataTransfer.dropEffect = opponentRankBand ? 'none' : 'move'
 
                 }
 
@@ -365,6 +370,8 @@ export function LobbyChessBoard({
                   const payload = parsePieceDragPayload(e.dataTransfer)
 
                   if (!payload) return
+
+                  if (opponentRankBand) return
 
                   if (payload.source === 'king') {
 
@@ -396,6 +403,8 @@ export function LobbyChessBoard({
           }
 
         >
+
+          {opponentRankBand ? <div className={boardStyle.squareRankShade} aria-hidden /> : null}
 
           {isKing && (
 
@@ -487,23 +496,35 @@ export function LobbyChessBoard({
 
       <div className={boardStyle.rankLabels} aria-hidden>
 
-        {ranks.map((rank, idx) => (
+        {ranks.map((rank, idx) => {
 
-          <div key={rank} className={boardStyle.rankLabelsCell}>
+          const rankLabelOpponentBand = shadeOpponentRanks && idx < KING_RANK_ROWS_MIN
 
-            <span
+          return (
 
-              className={`${boardStyle.axisLabel} ${idx % 2 === 0 ? boardStyle.axisOnLight : boardStyle.axisOnDark}`}
+            <div
+
+              key={rank}
+
+              className={`${boardStyle.rankLabelsCell} ${rankLabelOpponentBand ? boardStyle.rankLabelsCellOpponentBand : ''}`}
 
             >
 
-              {rank}
+              <span
 
-            </span>
+                className={`${boardStyle.axisLabel} ${idx % 2 === 0 ? boardStyle.axisOnLight : boardStyle.axisOnDark}`}
 
-          </div>
+              >
 
-        ))}
+                {rank}
+
+              </span>
+
+            </div>
+
+          )
+
+        })}
 
       </div>
 

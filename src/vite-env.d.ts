@@ -6,6 +6,7 @@ interface ImportMetaEnv {
   readonly VITE_GAME_URL?: string
   readonly VITE_BATTLE_URL?: string
   readonly VITE_ANALYTICS_URL?: string
+  readonly VITE_ADMIN_USERS?: string
 }
 
 interface ImportMeta {

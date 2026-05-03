@@ -58,14 +58,14 @@ export function EvaluationBar({ centipawns, className, invert = false }: Props) 
         />
         {whiteAhead ? (
           <div
-            className={`${gameStyle.evalBarScore} ${whiteOnTop ? gameStyle.evalBarScoreTop : gameStyle.evalBarScoreBottom}`}
+            className={`${gameStyle.evalBarScore} ${whiteOnTop ? gameStyle.evalBarScoreTop : gameStyle.evalBarScoreBottom} ${gameStyle.evalBarScoreOnLightBg}`}
           >
             <span className={gameStyle.evalBarScoreInner}>+{label}</span>
           </div>
         ) : null}
         {blackAhead ? (
           <div
-            className={`${gameStyle.evalBarScore} ${whiteOnTop ? gameStyle.evalBarScoreBottom : gameStyle.evalBarScoreTop}`}
+            className={`${gameStyle.evalBarScore} ${whiteOnTop ? gameStyle.evalBarScoreBottom : gameStyle.evalBarScoreTop} ${gameStyle.evalBarScoreOnDarkBg}`}
           >
             <span className={gameStyle.evalBarScoreInner}>{label}</span>
           </div>

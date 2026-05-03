@@ -5,7 +5,7 @@ import style from './Pages.module.css'
 
 export function Register() {
   const navigate = useNavigate()
-  const { register, accessToken, playAsGuest } = useAuth()
+  const { register, accessToken, isGuest, playAsGuest } = useAuth()
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -14,12 +14,12 @@ export function Register() {
   const [guestLoading, setGuestLoading] = useState(false)
 
   useEffect(() => {
-    if (accessToken) {
+    if (accessToken && !isGuest) {
       navigate('/', { replace: true })
     }
-  }, [accessToken, navigate])
+  }, [accessToken, isGuest, navigate])
 
-  if (accessToken) return null
+  if (accessToken && !isGuest) return null
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()

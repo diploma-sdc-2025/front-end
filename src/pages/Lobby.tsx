@@ -46,7 +46,7 @@ export function Lobby() {
                 <div>
                   <strong>Searching for opponent…</strong>
                   <p className={style.mutedSmall} style={{ marginTop: 6, textAlign: 'left' }}>
-                    Queue {queue.queueSize} · You are #{queue.position ?? '—'}
+                    Queue {queue.queueSize} · You are #{queue.position ?? '-'}
                   </p>
                 </div>
                 <span className={lobbyStyle.timer}>{formatElapsed(queue.elapsedSec)}</span>

@@ -1,11 +1,20 @@
+import {
+  AUTH_ACCESS_STORAGE_KEY,
+  AUTH_REFRESH_STORAGE_KEY,
+  AUTOCHESS_TOKENS_UPDATED_EVENT,
+} from '../constants/authStorageKeys.ts'
 import { getGameApi } from './config.ts'
-import { coerceMatchId, readApiError } from './client.ts'
+import { authApi } from './auth.ts'
+import { coerceMatchId, readApiErrorFromText } from './client.ts'
+import { getAccessTokenExp } from '../util/jwtClaims.ts'
 
 export interface MatchResponse {
   matchId: number
   status: string
   currentRound: number
   playerIds: number[]
+  /** Present when {@link status} is `FINISHED`. */
+  winnerUserId: number | null
 }
 
 export type ShopPiece = 'pawn' | 'knight' | 'bishop' | 'rook' | 'queen'
@@ -63,12 +72,18 @@ export interface BattleRoundResponse {
   battleViewEndsAt: number
   whiteHp: number
   blackHp: number
+  /** True when the match ended this round (elimination or already resolved). */
+  matchFinished: boolean
+  winnerUserId: number | null
 }
 
 const SHOP_PIECES: ShopPiece[] = ['pawn', 'knight', 'bishop', 'rook', 'queen']
 
 /** White POV: rank 8 at row 0. Pawns may use chess ranks 2–4 only → rows 4–6. */
 export const PAWN_RANK_ROWS_MIN = 4
+/** Must stay in sync with `PlayerResources.DEFAULT_HP` in game-service (starting / max HP). */
+export const GAME_HP_MAX = 50
+
 export const PAWN_RANK_ROWS_MAX = 6
 /** King may use any file a–h → columns 0–7. */
 export const KING_LANE_COL_MIN = 0
@@ -120,39 +135,121 @@ function normalizeMatch(data: unknown): MatchResponse {
         .map((p) => (typeof p === 'number' ? p : parseInt(String(p), 10)))
         .filter((n) => Number.isFinite(n))
     : []
+  const winnerRaw = d.winnerUserId ?? d.winner_user_id
+  const winnerN = winnerRaw != null && winnerRaw !== '' ? Number(winnerRaw) : NaN
   return {
     matchId: id,
     status: String(d.status ?? ''),
     currentRound: Number(d.currentRound ?? d.current_round ?? 0),
     playerIds,
+    winnerUserId: Number.isFinite(winnerN) ? Math.trunc(winnerN) : null,
   }
 }
 
-function authHeaders(accessToken: string): HeadersInit {
-  return { Authorization: `Bearer ${accessToken}` }
+/**
+ * game-service often refreshes the JWT inside GET /shop before React re-renders. Mutations must not send the
+ * stale access token still held in component state - sessionStorage is updated synchronously on refresh.
+ */
+function resolveAccessTokenForGameRequest(passed: string): string {
+  const stored = sessionStorage.getItem(AUTH_ACCESS_STORAGE_KEY)?.trim()
+  if (stored) return stored
+  return passed.trim()
 }
 
 type RequestOptions = Omit<RequestInit, 'body'> & { body?: unknown }
+
+/** Single-flight refresh when game-service returns 401/403 (often expired JWT). */
+let refreshInFlight: Promise<string | null> | null = null
+
+async function refreshAccessTokenForGame(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight
+  const storedRefresh = sessionStorage.getItem(AUTH_REFRESH_STORAGE_KEY)
+  if (!storedRefresh?.trim()) return null
+
+  refreshInFlight = (async () => {
+    try {
+      const res = await authApi.refresh({ refreshToken: storedRefresh })
+      sessionStorage.setItem(AUTH_ACCESS_STORAGE_KEY, res.accessToken)
+      sessionStorage.setItem(AUTH_REFRESH_STORAGE_KEY, res.refreshToken ?? storedRefresh)
+      window.dispatchEvent(
+        new CustomEvent(AUTOCHESS_TOKENS_UPDATED_EVENT, {
+          detail: { accessToken: res.accessToken },
+        }),
+      )
+      return res.accessToken
+    } catch {
+      return null
+    } finally {
+      refreshInFlight = null
+    }
+  })()
+
+  return refreshInFlight
+}
+
+/**
+ * Only refresh proactively when the token is essentially out of life. Aggressive proactive refresh can mask
+ * deeper issues (e.g. mismatched JWT secrets between services); the on-403 retry path still handles real
+ * expirations.
+ */
+const GAME_TOKEN_REFRESH_WITHIN_SEC = 30
+
+async function resolveTokenForGameFetch(passed: string, retried: boolean): Promise<string> {
+  let token = resolveAccessTokenForGameRequest(passed)
+  if (retried || !token) return token
+  const exp = getAccessTokenExp(token)
+  const now = Math.floor(Date.now() / 1000)
+  if (exp != null && exp - now <= GAME_TOKEN_REFRESH_WITHIN_SEC) {
+    const next = await refreshAccessTokenForGame()
+    if (next?.trim()) return next.trim()
+  }
+  return token
+}
 
 async function request<T>(
   path: string,
   accessToken: string,
   options: RequestOptions = {},
+  retried = false,
 ): Promise<T> {
+  const token = await resolveTokenForGameFetch(accessToken, retried)
+  if (!token.trim()) {
+    throw new Error('Not signed in or session expired. Please log in again.')
+  }
   const { body, ...rest } = options
+  const headers = new Headers()
+  if (options.headers) {
+    new Headers(options.headers as HeadersInit).forEach((value, key) => {
+      const k = key.toLowerCase()
+      if (k !== 'authorization' && k !== 'content-type') {
+        headers.set(key, value)
+      }
+    })
+  }
+  headers.set('Content-Type', 'application/json')
+  headers.set('Authorization', `Bearer ${token.trim()}`)
   const init: RequestInit = {
     ...rest,
     cache: 'no-store',
-    headers: {
-      'Content-Type': 'application/json',
-      ...authHeaders(accessToken),
-      ...(options.headers as HeadersInit),
-    },
+    headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   }
   const res = await fetch(getGameApi(path), init)
   if (!res.ok) {
-    throw new Error(await readApiError(res))
+    if (!retried && (res.status === 401 || res.status === 403)) {
+      const nextToken = await refreshAccessTokenForGame()
+      if (nextToken) {
+        return request(path, nextToken, options, true)
+      }
+    }
+    // Buffer the response body once so we can both log it (for diagnostics) and surface it to the UI.
+    const rawBody = await res.text().catch(() => '')
+    const tokPreview = `${token.slice(0, 12)}…${token.slice(-8)} len=${token.length}`
+    const bodyPreview = rawBody.length > 200 ? `${rawBody.slice(0, 200)}…` : rawBody
+    console.warn(
+      `[gameApi] ${options.method ?? 'GET'} ${path} -> HTTP ${res.status} ${res.statusText}; token=${tokPreview}; retried=${retried}; body=${bodyPreview || '<empty>'}`,
+    )
+    throw new Error(await readApiErrorFromText(res, rawBody))
   }
   if (res.status === 204) return undefined as T
   const text = await res.text()
@@ -212,8 +309,9 @@ export const gameApi = {
     const king =
       normalizeKingSquare(data.king) ??
       ({ x: 4, y: 7 } satisfies KingSquareDto)
-    const hp = Number.isFinite(Number(data.hp)) ? Math.trunc(Number(data.hp)) : 100
-    const hpMax = Number.isFinite(Number(data.hpMax)) ? Math.max(1, Math.trunc(Number(data.hpMax))) : 100
+    const hpMax = Number.isFinite(Number(data.hpMax)) ? Math.max(1, Math.trunc(Number(data.hpMax))) : GAME_HP_MAX
+    const hpRaw = Number.isFinite(Number(data.hp)) ? Math.trunc(Number(data.hp)) : hpMax
+    const hp = Math.min(Math.max(0, hpRaw), hpMax)
     return {
       ...data,
       hp,
@@ -317,6 +415,9 @@ export const gameApi = {
     const blackHpRaw = raw.blackHp ?? raw.black_hp
     const battleViewEndsAtRaw = raw.battleViewEndsAt ?? raw.battle_view_ends_at
     const battleViewEndsAtN = Number(battleViewEndsAtRaw)
+    const matchFinishedRaw = raw.matchFinished ?? raw.match_finished
+    const winnerRaw = raw.winnerUserId ?? raw.winner_user_id
+    const winnerN = winnerRaw != null && winnerRaw !== '' ? Number(winnerRaw) : NaN
     return {
       fen: String(raw.fen ?? ''),
       centipawns: Number(raw.centipawns ?? 0),
@@ -332,6 +433,14 @@ export const gameApi = {
       battleViewEndsAt: Number.isFinite(battleViewEndsAtN) ? Math.trunc(battleViewEndsAtN) : Date.now() + 25_000,
       whiteHp: Number.isFinite(Number(whiteHpRaw)) ? Math.max(0, Math.trunc(Number(whiteHpRaw))) : 100,
       blackHp: Number.isFinite(Number(blackHpRaw)) ? Math.max(0, Math.trunc(Number(blackHpRaw))) : 100,
+      matchFinished: Boolean(matchFinishedRaw),
+      winnerUserId: Number.isFinite(winnerN) ? Math.trunc(winnerN) : null,
     }
+  },
+
+  resignMatch(matchId: number, accessToken: string): Promise<void> {
+    return request<void>(`/api/game/matches/${matchId}/resign`, accessToken, {
+      method: 'POST',
+    })
   },
 }

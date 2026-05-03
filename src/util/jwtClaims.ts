@@ -40,3 +40,42 @@ export function parseUserIdFromAccessToken(accessToken: string | null): number |
     return null
   }
 }
+
+/** True when JWT has `exp` in the past (with small clock-skew tolerance). */
+export function isAccessTokenExpired(accessToken: string | null, skewSeconds = 10): boolean {
+  if (!accessToken?.includes('.')) return true
+  const part = accessToken.split('.')[1]
+  if (!part) return true
+  try {
+    const base64 = part.replace(/-/g, '+').replace(/_/g, '/')
+    const pad = base64.length % 4
+    const padded = pad ? base64 + '='.repeat(4 - pad) : base64
+    const json = atob(padded)
+    const payload = JSON.parse(json) as Record<string, unknown>
+    const exp = payload.exp
+    if (typeof exp !== 'number' || !Number.isFinite(exp)) return false
+    const now = Math.floor(Date.now() / 1000)
+    return exp <= now + skewSeconds
+  } catch {
+    return true
+  }
+}
+
+/** JWT `exp` as epoch seconds, or null when missing/invalid. */
+export function getAccessTokenExp(accessToken: string | null): number | null {
+  if (!accessToken?.includes('.')) return null
+  const part = accessToken.split('.')[1]
+  if (!part) return null
+  try {
+    const base64 = part.replace(/-/g, '+').replace(/_/g, '/')
+    const pad = base64.length % 4
+    const padded = pad ? base64 + '='.repeat(4 - pad) : base64
+    const json = atob(padded)
+    const payload = JSON.parse(json) as Record<string, unknown>
+    const exp = payload.exp
+    if (typeof exp === 'number' && Number.isFinite(exp)) return exp
+    return null
+  } catch {
+    return null
+  }
+}

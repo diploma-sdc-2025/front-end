@@ -122,6 +122,10 @@
   cursor: not-allowed;
 }
 
+.primaryButton.primaryButtonLightLabel {
+  color: #ffffff;
+}
+
 .secondaryButton {
   padding: 11px 16px;
   font-size: 0.98rem;

@@ -1,4 +1,4 @@
-# Auto-Chess — Web Front-End
+# Auto-Chess - Web Front-End
 
 Starter web app for the [Auto-Chess](https://github.com/diploma-sdc-2025/front-end) diploma project. Built with **Vite**, **React 19**, and **TypeScript**.
 
@@ -50,9 +50,9 @@ Run stacks with **`deployement/docker-compose.yml`**: auth **8081**, matchmaking
 
 ## Scripts
 
-- `npm run dev` — Start dev server.
-- `npm run build` — Production build.
-- `npm run preview` — Preview production build locally.
+- `npm run dev` - Start dev server.
+- `npm run build` - Production build.
+- `npm run preview` - Preview production build locally.
 
 ## Project structure
 

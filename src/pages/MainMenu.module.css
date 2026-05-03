@@ -1,4 +1,4 @@
-/* Full-width shell — not a narrow “phone” column on desktop */
+/* Full-width shell - not a narrow “phone” column on desktop */
 .menuFrame {
   width: 100%;
   max-width: 1360px;
@@ -260,6 +260,10 @@
   font-size: 0.92rem;
 }
 
+.tabTitleHowToPlay {
+  font-size: 1.02rem;
+}
+
 .menuMain {
   flex: 1;
   min-height: 0;
@@ -291,6 +295,35 @@
   letter-spacing: 0.04em;
 }
 
+.guestRegisterWrap {
+  margin-top: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.guestProfileIntro {
+  margin: 8px 0 0;
+  color: var(--color-muted);
+  font-size: 1.06rem;
+  line-height: 1.45;
+  font-weight: 600;
+}
+
+.guestRegisterCta {
+  width: 100%;
+  max-width: 280px;
+  margin-inline: auto;
+  margin-top: 12px;
+  padding: 12px 18px;
+  font-size: 0.96rem;
+  border-radius: 12px;
+  text-align: center;
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+}
+
 .sectionSubtle {
   margin: 8px 0 0;
   color: var(--color-muted);
@@ -309,6 +342,76 @@
   border: 1px solid rgba(255, 255, 255, 0.11);
   background: rgba(255, 255, 255, 0.02);
   padding: 14px 16px;
+}
+
+.howToPlayPageTitle {
+  font-size: 1.2rem;
+  letter-spacing: 0.05em;
+}
+
+.howToPlayGuides {
+  margin-top: 16px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+}
+
+.howToPlayModeTitle {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  color: var(--color-text);
+}
+
+.howToPlayLead {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+.howToPlaySubTitle {
+  margin: 14px 0 8px;
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text);
+}
+
+.howToPlaySubTitle:first-of-type {
+  margin-top: 12px;
+}
+
+.howToPlayBody {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--color-text);
+}
+
+.howToPlayList {
+  margin: 0;
+  padding-left: 1.15em;
+  font-size: 0.95rem;
+  line-height: 1.58;
+  color: var(--color-text);
+}
+
+.howToPlayList li + li {
+  margin-top: 6px;
+}
+
+.howToPlayTutorialRow {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+}
+
+.howToPlayTutorialButton {
+  min-width: min(280px, 100%);
+  font-size: 1.05rem;
 }
 
 .profileIdentityRow {
@@ -1114,6 +1217,10 @@
   cursor: pointer;
 }
 
+.toggleSwitch:disabled {
+  cursor: not-allowed;
+}
+
 .toggleKnob {
   width: 20px;
   height: 20px;
@@ -1354,6 +1461,107 @@
   padding-top: 8px !important;
   padding-bottom: 8px !important;
   font-size: 0.9rem !important;
+  color: #ffffff !important;
+}
+
+/* Compact informational dialog (e.g. “coming soon”) - matches play-mode picker chrome */
+.noticeModalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom))
+    max(12px, env(safe-area-inset-left));
+  background: rgba(8, 10, 12, 0.82);
+  backdrop-filter: blur(8px);
+  box-sizing: border-box;
+}
+
+.noticeModalPanel {
+  width: min(420px, calc(100vw - 24px));
+  border-radius: 16px;
+  border: 1px solid rgba(210, 216, 226, 0.14);
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(var(--color-primary-2-rgb), 0.14), transparent 55%),
+    linear-gradient(165deg, rgba(22, 26, 32, 0.98), rgba(14, 17, 22, 0.98));
+  padding: 22px 22px 18px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+  box-sizing: border-box;
+}
+
+.noticeModalTitle {
+  margin: 0 0 12px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: rgba(255, 255, 255, 0.94);
+  line-height: 1.25;
+}
+
+.noticeModalBody {
+  margin: 0 0 20px;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: rgba(230, 236, 240, 0.82);
+}
+
+.noticeModalBody strong {
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.noticeModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.noticeModalButton {
+  min-width: 104px;
+  padding: 10px 18px;
+  font-size: 0.88rem;
+  font-weight: 900;
+  cursor: pointer;
+  border: none;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+  background: linear-gradient(180deg, var(--color-primary-2), var(--color-primary));
+}
+
+.noticeModalButton:hover:not(:disabled) {
+  filter: brightness(1.04);
+}
+
+.noticeModalButton:focus-visible {
+  outline: 2px solid rgba(var(--color-primary-2-rgb), 0.75);
+  outline-offset: 2px;
+}
+
+:global(html[data-app-theme='light']) .noticeModalOverlay {
+  background: rgba(248, 250, 252, 0.92);
+}
+
+:global(html[data-app-theme='light']) .noticeModalPanel {
+  border-color: rgba(80, 98, 120, 0.2);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.98), rgba(240, 244, 250, 0.98));
+}
+
+:global(html[data-app-theme='light']) .noticeModalTitle {
+  color: #1f2b38;
+}
+
+:global(html[data-app-theme='light']) .noticeModalBody {
+  color: #4a5b6d;
+}
+
+:global(html[data-app-theme='light']) .noticeModalBody strong {
+  color: #243042;
 }
 
 :global(html[data-app-theme='light']) .playModePickerOverlay {
@@ -1500,7 +1708,7 @@
   background: rgba(var(--color-primary-2-rgb), 0.12);
 }
 
-/* —— Desktop / tablet: wide layout —— */
+/* - Desktop / tablet: wide layout - */
 @media (min-width: 900px) {
   .menuFrame {
     padding: 32px 40px 48px;
@@ -1585,6 +1793,11 @@
 
   .profileGrid {
     grid-template-columns: 1.1fr 1fr;
+  }
+
+  .howToPlayGuides {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
   }
 
   .menuFooter {

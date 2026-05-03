@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { NavigateFunction } from 'react-router-dom'
 import { gameApi } from '../api/game.ts'
 import { matchmakingApi, matchIdFromJoinOrStatus } from '../api/matchmaking.ts'
+import { playMatchFoundSound } from '../util/menuAudio.ts'
 import { parseUserIdFromAccessToken } from '../util/jwtClaims.ts'
 
 const POLL_MS = 1500
 /** Avoid treating a single early `inQueue: false` as an error before the server catches up */
-const MIN_POLLS_BEFORE_NOT_IN_QUEUE_ERROR = 2
+const MIN_POLLS_BEFORE_NOT_IN_QUEUE_ERROR = 3
 
 /**
  * Joins the matchmaking queue, polls `/api/matchmaking/status`, and navigates when `matchId` appears
@@ -25,6 +26,11 @@ export function useMatchmakingQueue(accessToken: string | null, navigate: Naviga
   const cancelledByUser = useRef(false)
   const searchingRef = useRef(false)
   const pollCount = useRef(0)
+
+  const isAuthExpiredError = useCallback((err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err ?? '')
+    return /(invalid token|token expired|session expired|unauthorized|401)/i.test(msg)
+  }, [])
 
   const clearTimers = useCallback(() => {
     if (pollRef.current !== undefined) {
@@ -55,7 +61,7 @@ export function useMatchmakingQueue(accessToken: string | null, navigate: Naviga
           return
         }
       } catch {
-        setError('Could not verify the match with game-service (check it is running and Vite proxies /api/game).')
+        setError('Could not verify the match with game-service (check it is running and VITE_GAME_URL / proxy).')
         clearTimers()
         searchingRef.current = false
         setPhase('idle')
@@ -68,6 +74,7 @@ export function useMatchmakingQueue(accessToken: string | null, navigate: Naviga
       pollCount.current = 0
       setPhase('idle')
       setElapsedSec(0)
+      playMatchFoundSound()
       navigate(`/game/${matchId}`, {
         replace: true,
         state: { matchAssignedAt: Date.now() },
@@ -123,7 +130,26 @@ export function useMatchmakingQueue(accessToken: string | null, navigate: Naviga
             !cancelledByUser.current &&
             pollCount.current > MIN_POLLS_BEFORE_NOT_IN_QUEUE_ERROR
           ) {
-            setError('You left the queue before a match was assigned.')
+            // Second opinion: brief outages used to make status look empty while the user was still searching.
+            try {
+              const s2 = await matchmakingApi.status(accessToken)
+              setPosition(s2.position ?? null)
+              setQueueSize(s2.queueSize ?? 0)
+              const mid2 = matchIdFromJoinOrStatus(s2)
+              if (mid2 !== null) {
+                setIsJoining(false)
+                await goToMatch(mid2)
+                return
+              }
+              if (s2.inQueue) {
+                return
+              }
+            } catch {
+              /* fall through - show the generic message below */
+            }
+            setError(
+              'Matchmaking lost your place in the queue (often a brief connection glitch). Click Find match again.',
+            )
             clearTimers()
             searchingRef.current = false
             setPhase('idle')
@@ -131,6 +157,15 @@ export function useMatchmakingQueue(accessToken: string | null, navigate: Naviga
             setIsJoining(false)
           }
         } catch (e) {
+          if (isAuthExpiredError(e)) {
+            setError('Session expired. Please log in again.')
+            clearTimers()
+            searchingRef.current = false
+            setPhase('idle')
+            setElapsedSec(0)
+            setIsJoining(false)
+            return
+          }
           setError(e instanceof Error ? e.message : 'Matchmaking error')
           clearTimers()
           searchingRef.current = false
@@ -140,13 +175,19 @@ export function useMatchmakingQueue(accessToken: string | null, navigate: Naviga
         }
       }, POLL_MS)
     } catch (e) {
+      if (isAuthExpiredError(e)) {
+        setError('Session expired. Please log in again.')
+        searchingRef.current = false
+        setPhase('idle')
+        return
+      }
       setError(e instanceof Error ? e.message : 'Failed to join queue')
       searchingRef.current = false
       setPhase('idle')
     } finally {
       setIsJoining(false)
     }
-  }, [accessToken, phase, isJoining, clearTimers, goToMatch])
+  }, [accessToken, phase, isJoining, clearTimers, goToMatch, isAuthExpiredError])
 
   const cancelFinding = useCallback(async () => {
     if (!accessToken) return
