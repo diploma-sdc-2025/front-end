@@ -21,8 +21,13 @@ export const config = {
   matchmakingUrl: envUrl('VITE_MATCHMAKING_URL', 'http://localhost:8082'),
   gameUrl: envUrl('VITE_GAME_URL', 'http://localhost:8083'),
   battleUrl: envUrl('VITE_BATTLE_URL', 'http://localhost:8084'),
-  /** docker-compose maps analytics-service to host port 8080 */
-  analyticsUrl: envUrl('VITE_ANALYTICS_URL', 'http://localhost:8080'),
+  /**
+   * Default '' = same-origin `/api/analytics/...` (Vite proxy in dev; nginx/API gateway in prod).
+   * Do not default to localhost here: the admin live stream uses EventSource from the browser;
+   * a remote user would otherwise try to open SSE on their own machine and stay “Connecting…”.
+   * Set `VITE_ANALYTICS_URL` only when the SPA is served from a host that cannot proxy `/api/analytics`.
+   */
+  analyticsUrl: envUrl('VITE_ANALYTICS_URL', ''),
 } as const
 
 export function getAuthApi(path: string): string {

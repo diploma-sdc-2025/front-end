@@ -72,7 +72,10 @@ export interface LiveAnalyticsMetrics {
 
 export function getAdminLiveStreamUrl(accessToken: string): string {
   const base = getAnalyticsApi('/api/analytics/admin/stream')
-  const url = new URL(base, window.location.origin)
+  const url =
+    base.startsWith('http://') || base.startsWith('https://')
+      ? new URL(base)
+      : new URL(base.startsWith('/') ? base : `/${base}`, window.location.origin)
   url.searchParams.set('token', accessToken)
   return url.toString()
 }
