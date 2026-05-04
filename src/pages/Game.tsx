@@ -1,4 +1,5 @@
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import type { CSSProperties } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useAuth } from '../context/AuthContext.tsx'
 import style from './Pages.module.css'
@@ -219,6 +220,14 @@ export function Game({ mode = 'normal' }: GameProps) {
   const tutorialReplayPlySoundRef = useRef(-1)
   const [sellBinVisible, setSellBinVisible] = useState(false)
   const [sellBinOver, setSellBinOver] = useState(false)
+
+  type TapSelection =
+    | { source: 'bench'; benchSlot: number }
+    | { source: 'board'; col: number; row: number }
+    | { source: 'king' }
+    | null
+  const [tapSelection, setTapSelection] = useState<TapSelection>(null)
+
   const isTutorialMode = mode === 'tutorial'
   const battleSessionKey = useMemo(
     () => (matchId ? `autochess:battle:${matchId}` : 'autochess:battle:unknown'),
@@ -1436,7 +1445,7 @@ export function Game({ mode = 'normal' }: GameProps) {
                     <aside className={gameStyle.hpPanel} aria-label="Player HP">
                       <div className={gameStyle.hpValue}>{GAME_HP_MAX}</div>
                       <div className={gameStyle.hpTrack}>
-                        <div className={gameStyle.hpFill} style={{ height: '100%' }} />
+                        <div className={gameStyle.hpFill} style={{ '--hp-pct': '100%' } as CSSProperties} />
                       </div>
                     </aside>
                     <div className={gameStyle.tutorialCurrencyAnchor}>
@@ -1498,7 +1507,7 @@ export function Game({ mode = 'normal' }: GameProps) {
                         ) : null}
                         <aside className={gameStyle.hpPanelBattle} aria-label="Player HP">
                           <div className={gameStyle.hpTrack}>
-                            <div className={gameStyle.hpFill} style={{ height: '100%' }} />
+                            <div className={gameStyle.hpFill} style={{ '--hp-pct': '100%' } as CSSProperties} />
                           </div>
                         </aside>
                         <EvaluationBar centipawns={tutorialBattleState?.eval.centipawns ?? 0} invert />
@@ -1520,6 +1529,36 @@ export function Game({ mode = 'normal' }: GameProps) {
                         onMoveKing={handleTutorialMoveKing}
                         onSellablePieceDragStart={startSellableDrag}
                         onSellablePieceDragEnd={endSellableDrag}
+                        highlightSquare={
+                          tapSelection?.source === 'board' ? { col: tapSelection.col, row: tapSelection.row }
+                          : tapSelection?.source === 'king' ? tutorialKingSquare
+                          : null
+                        }
+                        onTapSquare={(col, row) => {
+                          if (!tapSelection) return
+                          if (tapSelection.source === 'bench') {
+                            handleTutorialPlaceFromBench(col, row, tapSelection.benchSlot)
+                          } else if (tapSelection.source === 'board') {
+                            handleTutorialMoveBoardPiece(tapSelection.col, tapSelection.row, col, row)
+                          } else if (tapSelection.source === 'king') {
+                            handleTutorialMoveKing(col, row)
+                          }
+                          setTapSelection(null)
+                        }}
+                        onTapBoardPiece={(col, row) => {
+                          if (tapSelection?.source === 'board' && tapSelection.col === col && tapSelection.row === row) {
+                            setTapSelection(null)
+                          } else {
+                            setTapSelection({ source: 'board', col, row })
+                          }
+                        }}
+                        onTapKing={() => {
+                          if (tapSelection?.source === 'king') {
+                            setTapSelection(null)
+                          } else {
+                            setTapSelection({ source: 'king' })
+                          }
+                        }}
                       />
                     ) : (
                       tutorialBattleDisplay ? (
@@ -1687,7 +1726,7 @@ export function Game({ mode = 'normal' }: GameProps) {
                     ) : null}
                     {showTutorialDragHint ? (
                       <div className={gameStyle.tutorialBenchHint} role="dialog" aria-modal="true" aria-label="Tutorial drag hint">
-                        <p className={gameStyle.tutorialBenchHintText}>pieces from the bench can be dragged into the board</p>
+                        <p className={gameStyle.tutorialBenchHintText}>Tap a piece to select it, then tap a board square to place it. On desktop you can also drag.</p>
                         <button
                           type="button"
                           className={gameStyle.tutorialBenchHintButton}
@@ -1705,7 +1744,7 @@ export function Game({ mode = 'normal' }: GameProps) {
                               src={PIECE_SPRITES[piece]}
                               alt=""
                               aria-hidden
-                              className={`${gameStyle.benchPiece} ${gameStyle.benchPieceDraggable}`}
+                              className={`${gameStyle.benchPiece} ${gameStyle.benchPieceDraggable} ${tapSelection?.source === 'bench' && tapSelection.benchSlot === i ? gameStyle.benchPieceSelected : ''}`}
                               draggable
                               onDragStart={(e) => {
                                 assignSpriteDragPreviewCanvas(e.nativeEvent, e.currentTarget)
@@ -1717,6 +1756,11 @@ export function Game({ mode = 'normal' }: GameProps) {
                                 if (!tutorialDragHintShown) {
                                   setTutorialDragHintShown(true)
                                   setShowTutorialDragHint(true)
+                                }
+                                if (tapSelection?.source === 'bench' && tapSelection.benchSlot === i) {
+                                  setTapSelection(null)
+                                } else {
+                                  setTapSelection({ source: 'bench', benchSlot: i })
                                 }
                               }}
                             />
@@ -1902,8 +1946,8 @@ export function Game({ mode = 'normal' }: GameProps) {
                       <div
                         className={gameStyle.hpFill}
                         style={{
-                          height: `${playerHpMax <= 0 ? 0 : Math.min(100, (playerHp / playerHpMax) * 100)}%`,
-                        }}
+                          '--hp-pct': `${playerHpMax <= 0 ? 0 : Math.min(100, (playerHp / playerHpMax) * 100)}%`,
+                        } as CSSProperties}
                       />
                     </div>
                   </aside>
@@ -1939,8 +1983,8 @@ export function Game({ mode = 'normal' }: GameProps) {
                           <div
                             className={gameStyle.hpFill}
                             style={{
-                              height: `${playerHpMax <= 0 ? 0 : Math.min(100, (playerHp / playerHpMax) * 100)}%`,
-                            }}
+                              '--hp-pct': `${playerHpMax <= 0 ? 0 : Math.min(100, (playerHp / playerHpMax) * 100)}%`,
+                            } as CSSProperties}
                           />
                         </div>
                       </aside>
@@ -1967,6 +2011,38 @@ export function Game({ mode = 'normal' }: GameProps) {
                       placementDisabled={placingPiece || shopInteractionsLocked}
                       onSellablePieceDragStart={startSellableDrag}
                       onSellablePieceDragEnd={endSellableDrag}
+                      highlightSquare={
+                        tapSelection?.source === 'board' ? { col: tapSelection.col, row: tapSelection.row }
+                        : tapSelection?.source === 'king' ? kingSquare
+                        : null
+                      }
+                      onTapSquare={(col, row) => {
+                        if (placingPiece || shopInteractionsLocked || !tapSelection) return
+                        if (tapSelection.source === 'bench') {
+                          handlePlaceFromBench(col, row, tapSelection.benchSlot)
+                        } else if (tapSelection.source === 'board') {
+                          handleMoveBoardPiece(tapSelection.col, tapSelection.row, col, row)
+                        } else if (tapSelection.source === 'king') {
+                          handleMoveKing(col, row)
+                        }
+                        setTapSelection(null)
+                      }}
+                      onTapBoardPiece={(col, row) => {
+                        if (placingPiece || shopInteractionsLocked) return
+                        if (tapSelection?.source === 'board' && tapSelection.col === col && tapSelection.row === row) {
+                          setTapSelection(null)
+                        } else {
+                          setTapSelection({ source: 'board', col, row })
+                        }
+                      }}
+                      onTapKing={() => {
+                        if (placingPiece || shopInteractionsLocked) return
+                        if (tapSelection?.source === 'king') {
+                          setTapSelection(null)
+                        } else {
+                          setTapSelection({ source: 'king' })
+                        }
+                      }}
                     />
                   ) : battleResult && battleBoardDisplay ? (
                     <BattlePreviewBoard
@@ -2083,7 +2159,7 @@ export function Game({ mode = 'normal' }: GameProps) {
                           src={PIECE_SPRITES[piece]}
                           alt=""
                           aria-hidden
-                          className={`${gameStyle.benchPiece} ${!placingPiece && !shopInteractionsLocked ? gameStyle.benchPieceDraggable : ''}`}
+                          className={`${gameStyle.benchPiece} ${!placingPiece && !shopInteractionsLocked ? gameStyle.benchPieceDraggable : ''} ${tapSelection?.source === 'bench' && tapSelection.benchSlot === i ? gameStyle.benchPieceSelected : ''}`}
                           draggable={!placingPiece && !shopInteractionsLocked}
                           onDragStart={
                             !placingPiece && !shopInteractionsLocked
@@ -2095,6 +2171,17 @@ export function Game({ mode = 'normal' }: GameProps) {
                               : undefined
                           }
                           onDragEnd={!placingPiece && !shopInteractionsLocked ? () => endSellableDrag() : undefined}
+                          onClick={
+                            !placingPiece && !shopInteractionsLocked
+                              ? () => {
+                                  if (tapSelection?.source === 'bench' && tapSelection.benchSlot === i) {
+                                    setTapSelection(null)
+                                  } else {
+                                    setTapSelection({ source: 'bench', benchSlot: i })
+                                  }
+                                }
+                              : undefined
+                          }
                         />
                       ) : null}
                     </div>

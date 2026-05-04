@@ -1,6 +1,8 @@
 .page {
   min-height: 100vh;
+  min-height: 100dvh;
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   background: radial-gradient(circle at 50% 20%, #1f2a22 0%, #0e1310 65%, #090c09 100%);
@@ -457,7 +459,9 @@
   right: calc(100% + 12px);
   top: 50%;
   transform: translateY(-50%);
-  width: 260px;
+  width: min(260px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
   border-radius: 12px;
   border: 1px solid rgba(177, 196, 165, 0.5);
   background: rgba(14, 18, 14, 0.95);
@@ -570,6 +574,18 @@
 
 .tutorialKnightBishopHintButton:hover {
   background: rgba(18, 23, 18, 0.9);
+}
+
+.tutorialBenchHintText,
+.tutorialShopHintText,
+.tutorialCurrencyHintText,
+.tutorialEvalHintText,
+.tutorialRemoveHintText,
+.tutorialTimerBattleHintText,
+.tutorialKnightBishopHintText {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .boardArea {
@@ -796,10 +812,11 @@
 
 .hpFill {
   width: 100%;
+  height: var(--hp-pct, 100%);
   min-height: 0;
   border-radius: inherit;
   background: linear-gradient(180deg, #ffffff 0%, #f5f5f5 100%);
-  transition: height 0.35s ease-out;
+  transition: height 0.35s ease-out, width 0.35s ease-out;
 }
 
 .moneyPanel {
@@ -1083,6 +1100,12 @@
   touch-action: none;
 }
 
+.benchPieceSelected {
+  outline: 3px solid rgba(130, 220, 100, 0.85);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
 .benchPieceDraggable:active {
   cursor: grabbing;
 }
@@ -1310,6 +1333,205 @@
 }
 
 @media (max-width: 900px) {
+  .boardArea {
+    overflow: visible;
+    flex: 1 1 0%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 8px;
+  }
+
+  .tutorialRoundTimerAnchor,
+  .rightActions {
+    overflow: visible;
+  }
+
+  .page {
+    --chess-board-inner-compact: min(90vw, calc(100vw - 20px));
+    --chess-board-inner-compact: round(down, min(90vw, calc(100vw - 20px)), 8px);
+    --chess-board-inner: var(--chess-board-inner-compact);
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .boardWithHp {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    align-items: flex-start;
+  }
+
+  .boardColumn {
+    width: 100%;
+    max-width: min(100%, 100vw);
+    min-width: 0;
+    box-sizing: border-box;
+    padding-inline: 6px;
+  }
+
+  .boardShell {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+    justify-items: center;
+    width: 100%;
+    max-width: min(var(--board-outer), calc(100vw - 12px));
+    margin-inline: auto;
+    gap: 6px 8px;
+    overflow: visible;
+  }
+
+  .boardMiddleColumn {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .leftBars,
+  .leftBarsBattle {
+    grid-column: 1;
+    grid-row: 2;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    gap: 10px;
+  }
+
+  .leftBarsPlaceholder {
+    grid-column: 1;
+    grid-row: 2;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+  }
+
+  /* Compact horizontal HP/money indicators on mobile */
+  .hpPanel {
+    flex-direction: row;
+    align-items: center;
+    width: auto;
+    gap: 5px;
+  }
+
+  .hpValue {
+    order: 0;
+    font-size: 0.88rem;
+  }
+
+  .hpTrack,
+  .leftBarsBattle .hpTrack {
+    flex-direction: row;
+    justify-content: flex-start;
+    width: 46px;
+    height: 16px;
+    border-radius: 8px;
+    padding: 1px;
+  }
+
+  .hpFill {
+    width: var(--hp-pct, 100%);
+    height: 100% !important;
+    min-height: unset;
+    border-radius: 7px;
+    background: linear-gradient(90deg, #ffffff 0%, #f5f5f5 100%);
+  }
+
+  .moneyPanel {
+    flex-direction: row;
+    align-items: center;
+    width: auto;
+    gap: 5px;
+  }
+
+  .moneyValue {
+    order: 0;
+    font-size: 0.78rem;
+  }
+
+  .moneyTrack {
+    flex-direction: row;
+    width: auto;
+    min-width: 30px;
+    height: 18px;
+    border-radius: 8px;
+    padding: 1px 3px;
+  }
+
+  .moneyFill {
+    flex-direction: row;
+    gap: 1px;
+    padding: 1px 2px;
+  }
+
+  .moneyPawnImage {
+    width: 11px;
+    height: 11px;
+  }
+
+  .rightActions {
+    grid-column: 2;
+    grid-row: 2;
+    min-height: auto;
+    width: 100%;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .roundTimer {
+    padding: 4px 10px;
+  }
+
+  .matchButtons {
+    flex-direction: row;
+    gap: 6px;
+  }
+
+  .resignButton,
+  .drawButton {
+    padding: 5px 10px;
+    font-size: 0.78rem;
+    min-width: auto;
+  }
+
+  .tutorialShopGuideArea {
+    grid-column: 1 / -1;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: visible;
+  }
+
+  .tutorialShopAnchor,
+  .tutorialBenchAnchor {
+    overflow: visible;
+  }
+
+  .matchPlayersBanner {
+    margin: 0 0 4px;
+    padding: 4px 8px;
+    font-size: 0.78rem;
+  }
+
+  .shop,
+  .shopSellRow {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .shopSellRow {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .hudInner {
+    max-width: 100%;
+  }
+
   .tutorialBenchHint {
     left: 50%;
     right: auto;
@@ -1332,10 +1554,11 @@
   }
 
   .tutorialShopHint {
-    right: 50%;
+    left: 50%;
+    right: auto;
     top: -10px;
     width: min(260px, calc(100vw - 40px));
-    transform: translate(50%, -100%);
+    transform: translate(-50%, -100%);
     margin: 0;
   }
 
@@ -1352,20 +1575,20 @@
   }
 
   .tutorialCurrencyHint {
-    left: 50%;
+    left: 0;
     right: auto;
     top: -10px;
-    width: min(280px, calc(100vw - 40px));
-    transform: translate(-50%, -100%);
+    width: min(260px, calc(100vw - 24px));
+    transform: translateY(-100%);
     margin: 0;
   }
 
   .tutorialCurrencyHint::after {
-    left: 50%;
+    left: 16px;
     right: auto;
     top: auto;
     bottom: -12px;
-    transform: translateX(-50%);
+    transform: none;
     border-left: 10px solid transparent;
     border-right: 10px solid transparent;
     border-top: 12px solid rgba(177, 196, 165, 0.75);
@@ -1373,20 +1596,20 @@
   }
 
   .tutorialEvalHint {
-    left: 50%;
+    left: 0;
     right: auto;
     top: -10px;
-    width: min(300px, calc(100vw - 40px));
-    transform: translate(-50%, -100%);
+    width: min(280px, calc(100vw - 24px));
+    transform: translateY(-100%);
     margin: 0;
   }
 
   .tutorialEvalHint::after {
-    left: 50%;
+    left: 16px;
     right: auto;
     top: auto;
     bottom: -12px;
-    transform: translateX(-50%);
+    transform: none;
     border-left: 10px solid transparent;
     border-right: 10px solid transparent;
     border-top: 12px solid rgba(177, 196, 165, 0.75);
@@ -1394,19 +1617,20 @@
   }
 
   .tutorialRemoveHint {
-    right: 50%;
+    left: auto;
+    right: 0;
     top: -10px;
-    width: min(280px, calc(100vw - 40px));
-    transform: translate(50%, -100%);
+    width: min(260px, calc(100vw - 24px));
+    transform: translateY(-100%);
     margin: 0;
   }
 
   .tutorialRemoveHint::after {
-    left: 50%;
-    right: auto;
+    left: auto;
+    right: 16px;
     top: auto;
     bottom: -12px;
-    transform: translateX(-50%);
+    transform: none;
     border-left: 10px solid transparent;
     border-right: 10px solid transparent;
     border-top: 12px solid rgba(177, 196, 165, 0.75);
@@ -1414,19 +1638,20 @@
   }
 
   .tutorialTimerBattleHint {
-    right: 50%;
+    left: auto;
+    right: 0;
     top: -10px;
-    width: min(280px, calc(100vw - 40px));
-    transform: translate(50%, -100%);
+    width: min(260px, calc(100vw - 24px));
+    transform: translateY(-100%);
     margin: 0;
   }
 
   .tutorialTimerBattleHint::after {
-    left: 50%;
-    right: auto;
+    left: auto;
+    right: 16px;
     top: auto;
     bottom: -12px;
-    transform: translateX(-50%);
+    transform: none;
     border-left: 10px solid transparent;
     border-right: 10px solid transparent;
     border-top: 12px solid rgba(177, 196, 165, 0.75);
@@ -1434,10 +1659,11 @@
   }
 
   .tutorialKnightBishopHint {
-    right: 50%;
+    left: 50%;
+    right: auto;
     top: -10px;
     width: min(260px, calc(100vw - 40px));
-    transform: translate(50%, -100%);
+    transform: translate(-50%, -100%);
     margin: 0;
   }
 
@@ -1453,51 +1679,75 @@
     border-bottom: none;
   }
 
-  .boardShell {
-    gap: 10px;
-  }
-
-  .leftBars {
-    gap: 5px;
-  }
-
-  .hpPanel {
-    width: 38px;
+  .evalBarTrack {
+    width: 22px;
+    height: min(80px, 14vh);
   }
 
   .hpPanelBattle {
-    width: 38px;
+    flex-direction: row;
+    align-items: center;
+    width: auto;
+    gap: 5px;
   }
 
-  .hpTrack {
-    width: 22px;
+  .hpBattleCluster {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
   }
 
-  .evalBarTrack {
-    width: 22px;
-  }
-
-  .leftBarsPlaceholder {
-    width: 65px;
-  }
-
-  .moneyPanel {
-    width: 40px;
-  }
-
-  .moneyTrack {
-    width: 24px;
+  .hpAndEvalRow {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
   }
 
   .shopItem {
-    min-height: 56px;
+    width: 56px;
+    min-height: 42px;
+    padding: 3px;
+    border-radius: 6px;
   }
 
-  .rightActions {
-    min-height: calc(var(--chess-board-inner-compact) + var(--chess-board-label-gutter, 18px));
+  .shopPieceImage {
+    width: 26px;
+    height: 26px;
   }
 
-  .matchButtons {
-    width: auto;
+  .bench {
+    gap: 4px;
+    padding: 4px;
+    border-radius: 8px;
+  }
+
+  .benchSlot {
+    height: clamp(28px, 4.5vmin, 38px);
+    border-radius: 6px;
+  }
+
+  .benchPiece {
+    width: clamp(20px, 3.6vmin, 30px);
+    height: clamp(20px, 3.6vmin, 30px);
+  }
+
+  .hudInner {
+    padding: 4px 6px;
+    border-radius: 8px;
+  }
+}
+
+/* Wider viewports: grow the board so the match UI uses more of the screen (not a tiny island on desktop). */
+@media (min-width: 1100px) {
+  .page {
+    --chess-board-inner-compact: round(down, min(68vmin, min(920px, calc(100vw - 240px))), 8px);
+    --chess-board-inner: round(down, min(74vmin, min(980px, calc(100vw - 220px))), 8px);
+  }
+}
+
+@media (min-width: 1600px) {
+  .page {
+    --chess-board-inner-compact: round(down, min(64vmin, min(1040px, calc(100vw - 280px))), 8px);
+    --chess-board-inner: round(down, min(70vmin, min(1100px, calc(100vw - 260px))), 8px);
   }
 }

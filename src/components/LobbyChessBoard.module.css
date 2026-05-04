@@ -159,8 +159,14 @@
 
   user-select: none;
 
-  pointer-events: none;
+  pointer-events: auto;
 
+}
+
+.squareHighlighted {
+  outline: 3px solid rgba(130, 220, 100, 0.85);
+  outline-offset: -3px;
+  background-color: rgba(130, 220, 100, 0.25) !important;
 }
 
 

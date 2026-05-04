@@ -189,6 +189,18 @@ type Props = {
   /** Dim ranks 5–8 (rows 0–3 from White POV) during shop - cannot place there. */
   shadeOpponentRanks?: boolean
 
+  /** Tap-to-place on mobile: called when a square is tapped (col, row). */
+  onTapSquare?: (col: number, row: number) => void
+
+  /** Tap-to-select on mobile: called when a placed board piece is tapped. */
+  onTapBoardPiece?: (col: number, row: number) => void
+
+  /** Tap-to-select on mobile: called when the king is tapped. */
+  onTapKing?: () => void
+
+  /** Col/row of a piece visually highlighted as "selected" for tap-to-place. */
+  highlightSquare?: { col: number; row: number } | null
+
 }
 
 
@@ -295,6 +307,14 @@ export function LobbyChessBoard({
 
   shadeOpponentRanks = false,
 
+  onTapSquare,
+
+  onTapBoardPiece,
+
+  onTapKing,
+
+  highlightSquare,
+
 }: Props) {
 
   const kingCol =
@@ -335,13 +355,21 @@ export function LobbyChessBoard({
 
       const opponentRankBand = shadeOpponentRanks && row < KING_RANK_ROWS_MIN
 
+      const isHighlighted = highlightSquare != null && highlightSquare.col === col && highlightSquare.row === row
+
       squares.push(
 
         <div
 
           key={`${row}-${col}`}
 
-          className={`${boardStyle.square} ${light ? boardStyle.light : boardStyle.dark} ${droppable ? boardStyle.droppable : ''} ${opponentRankBand ? boardStyle.squareOpponentRankBand : ''}`}
+          className={`${boardStyle.square} ${light ? boardStyle.light : boardStyle.dark} ${droppable ? boardStyle.droppable : ''} ${opponentRankBand ? boardStyle.squareOpponentRankBand : ''} ${isHighlighted ? boardStyle.squareHighlighted : ''}`}
+
+          onClick={
+            !isKing && !placed && onTapSquare && !opponentRankBand
+              ? () => onTapSquare(col, row)
+              : undefined
+          }
 
           onDragOver={
 
@@ -436,6 +464,8 @@ export function LobbyChessBoard({
 
               }
 
+              onClick={onTapKing ? (e) => { e.stopPropagation(); onTapKing() } : undefined}
+
             />
 
           )}
@@ -473,6 +503,8 @@ export function LobbyChessBoard({
               }
 
               onDragEnd={boardPieceDraggable ? () => onSellablePieceDragEnd?.() : undefined}
+
+              onClick={onTapBoardPiece ? (e) => { e.stopPropagation(); onTapBoardPiece(col, row) } : undefined}
 
             />
 

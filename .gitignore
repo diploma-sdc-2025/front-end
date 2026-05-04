@@ -10,6 +10,9 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+
+# Broken / accidental nested repo (only `.git`, no checkout) — breaks `git add .`
+/front-end/
 *.local
 .env
 
