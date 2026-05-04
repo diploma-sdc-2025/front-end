@@ -9,6 +9,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
+    // nginx forwards Host: kon-autochess.francecentral.cloudapp.azure.com
+    allowedHosts: ['kon-autochess.francecentral.cloudapp.azure.com'],
     proxy: {
       '/api/auth': {
         target: 'http://localhost:8081',
