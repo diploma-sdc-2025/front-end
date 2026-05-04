@@ -84,6 +84,10 @@ function formatRoundTime(totalSec: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
+function opponentHpFromBattle(res: BattleRoundResponse): number {
+  return res.currentUserIsWhite ? res.blackHp : res.whiteHp
+}
+
 /** Registered players see a static ±10 hint on the end screen; guests do not. */
 function matchEndRatingOverlay(won: boolean, token: string | null): { won: boolean; ratingDelta?: number } {
   if (!token || parseIsGuestFromAccessToken(token)) return { won }
@@ -172,6 +176,7 @@ export function Game({ mode = 'normal' }: GameProps) {
   const [pawnMoneyCap, setPawnMoneyCap] = useState(2)
   const [playerHp, setPlayerHp] = useState(GAME_HP_MAX)
   const [playerHpMax, setPlayerHpMax] = useState(GAME_HP_MAX)
+  const [opponentHp, setOpponentHp] = useState(GAME_HP_MAX)
   /** From auth users API; shown in shop/battle headers. */
   const [selfUsername, setSelfUsername] = useState('')
   const [opponentUsername, setOpponentUsername] = useState('')
@@ -210,6 +215,8 @@ export function Game({ mode = 'normal' }: GameProps) {
   const [battleRestoreDone, setBattleRestoreDone] = useState(false)
   /** Set after battle replay when the server reports the match ended (elimination). */
   const [matchEndOverlay, setMatchEndOverlay] = useState<{ won: boolean; ratingDelta?: number } | null>(null)
+  /** One-shot popup when an online battle round begins (White vs Black). */
+  const [battleColorSplashOpen, setBattleColorSplashOpen] = useState(false)
   const battleRequestRef = useRef(false)
   const shopRefreshTimerRef = useRef<number | null>(null)
   const shopSyncRequestIdRef = useRef(0)
@@ -333,6 +340,7 @@ export function Game({ mode = 'normal' }: GameProps) {
     setBattleEvalRetryTick(0)
     setPlayerHp(GAME_HP_MAX)
     setPlayerHpMax(GAME_HP_MAX)
+    setOpponentHp(GAME_HP_MAX)
     setSelfUsername('')
     setOpponentUsername('')
     setBattleRestoreDone(false)
@@ -414,6 +422,7 @@ export function Game({ mode = 'normal' }: GameProps) {
           setPlayerHpMax((prev) =>
             Math.max(prev, res.currentUserIsWhite ? res.whiteHp : res.blackHp, GAME_HP_MAX),
           )
+          setOpponentHp(opponentHpFromBattle(res))
           setPhase('battle')
           sessionStorage.setItem(battleSessionKey, String(res.battleViewEndsAt))
         } else {
@@ -459,6 +468,28 @@ export function Game({ mode = 'normal' }: GameProps) {
     const id = window.setInterval(computePlies, 250)
     return () => window.clearInterval(id)
   }, [phase, matchBattleTimeline])
+
+  useEffect(() => {
+    if (isTutorialMode || phase !== 'battle' || !battleResult) return
+    setBattleColorSplashOpen(true)
+    const id = window.setTimeout(() => setBattleColorSplashOpen(false), 4200)
+    return () => {
+      window.clearTimeout(id)
+    }
+  }, [phase, battleResult?.battleViewEndsAt, isTutorialMode])
+
+  useEffect(() => {
+    if (!battleColorSplashOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setBattleColorSplashOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [battleColorSplashOpen])
+
+  useEffect(() => {
+    if (phase !== 'battle') setBattleColorSplashOpen(false)
+  }, [phase])
 
   useEffect(() => {
     if (phase !== 'battle') {
@@ -566,6 +597,7 @@ export function Game({ mode = 'normal' }: GameProps) {
           setPlayerHpMax((prev) =>
             Math.max(prev, res.currentUserIsWhite ? res.whiteHp : res.blackHp, GAME_HP_MAX),
           )
+          setOpponentHp(opponentHpFromBattle(res))
           playBattleStartSound()
           setPhase('battle')
           sessionStorage.setItem(battleSessionKey, String(res.battleViewEndsAt))
@@ -603,6 +635,9 @@ export function Game({ mode = 'normal' }: GameProps) {
       setPawnMoneyCap((prev) => Math.max(prev, shop.money))
       setPlayerHp(shop.hp)
       setPlayerHpMax((prev) => Math.max(prev, shop.hpMax, 1))
+      if (shop.opponentHp != null) {
+        setOpponentHp(shop.opponentHp)
+      }
       const nextCosts: Record<ShopPiece, number> = { pawn: 1, knight: 3, bishop: 3, rook: 5, queen: 8 }
       const nextAffordable: Record<ShopPiece, boolean> = {
         pawn: false,
@@ -1126,6 +1161,9 @@ export function Game({ mode = 'normal' }: GameProps) {
       setPawnMoneyCap((prev) => Math.max(prev, shop.money))
       setPlayerHp(shop.hp)
       setPlayerHpMax((prev) => Math.max(prev, shop.hpMax, 1))
+      if (shop.opponentHp != null) {
+        setOpponentHp(shop.opponentHp)
+      }
       const nextCosts: Record<ShopPiece, number> = { pawn: 1, knight: 3, bishop: 3, rook: 5, queen: 8 }
       const nextAffordable: Record<ShopPiece, boolean> = {
         pawn: false,
@@ -1430,9 +1468,26 @@ export function Game({ mode = 'normal' }: GameProps) {
           <div className={gameStyle.boardWithHp}>
             <div className={gameStyle.boardColumn}>
               <p className={gameStyle.matchPlayersBanner} aria-label="Tutorial match">
-                <span className={gameStyle.matchPlayerName}>You</span>
+                <span className={gameStyle.matchPlayerSelf}>
+                  <span className={gameStyle.matchNameGroup}>
+                    <span className={gameStyle.matchPlayerName}>You</span>
+                  </span>
+                  <span className={gameStyle.matchHpPill} aria-label={`Your HP ${GAME_HP_MAX}`}>
+                    {GAME_HP_MAX}
+                  </span>
+                </span>
                 <span className={gameStyle.matchPlayersVs}>vs</span>
-                <span className={gameStyle.matchPlayerName}>Trainer</span>
+                <span className={gameStyle.matchPlayerOpponentSlot}>
+                  <span className={gameStyle.matchNameGroup}>
+                    <span className={gameStyle.matchPlayerName}>Trainer</span>
+                  </span>
+                  <span
+                    className={`${gameStyle.matchHpPill} ${gameStyle.matchHpPillOpponent}`}
+                    aria-label={`Opponent HP ${GAME_HP_MAX}`}
+                  >
+                    {GAME_HP_MAX}
+                  </span>
+                </span>
               </p>
               {!tutorialInBattle && shopError ? (
                 <p className={gameStyle.shopFeedback} role="alert" aria-live="polite">
@@ -1906,35 +1961,92 @@ export function Game({ mode = 'normal' }: GameProps) {
           </div>
         </div>
       ) : null}
+      {!isTutorialMode && battleColorSplashOpen && battleResult ? (
+        <div
+          className={gameStyle.battleColorSplashBackdrop}
+          onClick={() => setBattleColorSplashOpen(false)}
+          role="presentation"
+        >
+          <div
+            className={gameStyle.battleColorSplashCard}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="battle-splash-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="battle-splash-title" className={gameStyle.battleColorSplashTitle}>
+              Battle begins
+            </h2>
+            <div className={gameStyle.battleColorSplashRow}>
+              <div className={gameStyle.battleColorSplashPanelWhite}>
+                <span className={gameStyle.battleColorSplashLabel}>White</span>
+                <span className={gameStyle.battleColorSplashName}>
+                  {battleResult.currentUserIsWhite
+                    ? selfUsername || resolveDisplayName(accessToken)
+                    : opponentUsername || 'Opponent'}
+                  {battleResult.currentUserIsWhite ? (
+                    <span className={gameStyle.battleColorSplashYou}> (you)</span>
+                  ) : null}
+                </span>
+              </div>
+              <span className={gameStyle.battleColorSplashVs} aria-hidden>
+                vs
+              </span>
+              <div className={gameStyle.battleColorSplashPanelBlack}>
+                <span className={gameStyle.battleColorSplashLabel}>Black</span>
+                <span className={gameStyle.battleColorSplashName}>
+                  {battleResult.currentUserIsWhite
+                    ? opponentUsername || 'Opponent'
+                    : selfUsername || resolveDisplayName(accessToken)}
+                  {!battleResult.currentUserIsWhite ? (
+                    <span className={gameStyle.battleColorSplashYou}> (you)</span>
+                  ) : null}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              className={gameStyle.battleColorSplashContinue}
+              onClick={() => setBattleColorSplashOpen(false)}
+            >
+              Continue
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className={gameStyle.boardArea}>
         <div className={gameStyle.boardWithHp}>
             <div className={gameStyle.boardColumn}>
-            {phase === 'shop' ? (
+            {(phase === 'shop' || (phase === 'battle' && battleResult && battleBoardDisplay)) ? (
               <p className={gameStyle.matchPlayersBanner} aria-label="Match players">
                 <span className={gameStyle.matchPlayerSelf}>
-                  <span
-                    className={gameStyle.matchPlayerName}
-                    title={selfUsername || resolveDisplayName(accessToken)}
-                  >
-                    {selfUsername || resolveDisplayName(accessToken)}
+                  <span className={gameStyle.matchNameGroup}>
+                    <span
+                      className={gameStyle.matchPlayerName}
+                      title={selfUsername || resolveDisplayName(accessToken)}
+                    >
+                      {selfUsername || resolveDisplayName(accessToken)}
+                    </span>
+                    <span className={gameStyle.matchYouSuffix}> (you)</span>
                   </span>
-                  <span className={gameStyle.matchYouSuffix}> (you)</span>
+                  <span className={gameStyle.matchHpPill} aria-label={`Your HP ${playerHp}`}>
+                    {playerHp}
+                  </span>
                 </span>
                 <span className={gameStyle.matchPlayersVs}>vs</span>
                 <span className={gameStyle.matchPlayerOpponentSlot}>
-                  <span className={gameStyle.matchPlayerName} title={opponentUsername || 'Opponent'}>
-                    {opponentUsername || '…'}
+                  <span className={gameStyle.matchNameGroup}>
+                    <span className={gameStyle.matchPlayerName} title={opponentUsername || 'Opponent'}>
+                      {opponentUsername || '…'}
+                    </span>
+                  </span>
+                  <span
+                    className={`${gameStyle.matchHpPill} ${gameStyle.matchHpPillOpponent}`}
+                    aria-label={`Opponent HP ${opponentHp}`}
+                  >
+                    {opponentHp}
                   </span>
                 </span>
-              </p>
-            ) : null}
-            {phase === 'battle' && battleResult && battleBoardDisplay ? (
-              <p className={gameStyle.battleSceneHeader}>
-                <span className={gameStyle.matchRivalryInline}>
-                  {selfUsername || resolveDisplayName(accessToken)} vs {opponentUsername || 'Opponent'}
-                </span>{' '}
-                - you are{' '}
-                <strong>{battleResult.currentUserIsWhite ? 'White' : 'Black'}</strong>
               </p>
             ) : null}
             <div className={gameStyle.boardShell}>

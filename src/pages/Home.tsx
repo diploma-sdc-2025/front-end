@@ -35,6 +35,10 @@ import {
   AUDIO_MUTE_ALL_KEY,
 } from '../util/menuAudio.ts'
 
+/** Leaderboard list shows top N; we fetch up to the analytics API max to resolve “your rank” below the visible slice. */
+const LEADERBOARD_DISPLAY_TOP = 100
+const LEADERBOARD_FETCH_LIMIT = 500
+
 /** Stored before joining queue so the game client can branch when 1v3 is implemented. */
 const QUEUE_MODE_STORAGE_KEY = 'diploma:queueMode'
 const NOTIFY_BATTLE_REMINDER_KEY = 'menu_notify_battle_reminder'
@@ -64,41 +68,6 @@ type DemoPosition = {
 type MiniFenPiece = {
   piece: ShopPiece | 'king'
   black: boolean
-}
-
-function pieceFromFenChar(ch: string): MiniFenPiece | null {
-  const lower = ch.toLowerCase()
-  const black = ch === lower
-  if (lower === 'k') return { piece: 'king', black }
-  if (lower === 'q') return { piece: 'queen', black }
-  if (lower === 'r') return { piece: 'rook', black }
-  if (lower === 'b') return { piece: 'bishop', black }
-  if (lower === 'n') return { piece: 'knight', black }
-  if (lower === 'p') return { piece: 'pawn', black }
-  return null
-}
-
-function parseFenPiecesForMiniBoard(fen: string | null): Array<MiniFenPiece | null> | null {
-  if (!fen) return null
-  const placement = fen.trim().split(/\s+/)[0]
-  if (!placement) return null
-  const rows = placement.split('/')
-  if (rows.length !== 8) return null
-
-  const board: Array<MiniFenPiece | null> = []
-  for (const row of rows) {
-    for (const ch of row) {
-      const n = Number(ch)
-      if (Number.isInteger(n) && n >= 1 && n <= 8) {
-        for (let i = 0; i < n; i += 1) board.push(null)
-        continue
-      }
-      const parsed = pieceFromFenChar(ch)
-      if (!parsed) return null
-      board.push(parsed)
-    }
-  }
-  return board.length === 64 ? board : null
 }
 
 function miniPieceSpriteName(piece: MiniFenPiece['piece']): string {
@@ -212,13 +181,16 @@ export function Home() {
       currentRating: number
     }>
   >([])
+  /** When your rank is > 100 but within the extended fetch; otherwise `beyond` = past API limit. */
+  const [leaderboardYourPlacement, setLeaderboardYourPlacement] = useState<
+    null | 'beyond' | { rank: number; matchesPlayed: number; winRatePercent: number; currentRating: number }
+  >(null)
   const [leaderboardLoading, setLeaderboardLoading] = useState(false)
   const [leaderboardError, setLeaderboardError] = useState<string | null>(null)
   const [myStats, setMyStats] = useState<PlayerStats | null>(null)
   const [recentOpponentLabels, setRecentOpponentLabels] = useState<Map<number, string>>(() => new Map())
   const [statsLoading, setStatsLoading] = useState(false)
   const [playModePickerOpen, setPlayModePickerOpen] = useState(false)
-  const [practiceVsBotNoticeOpen, setPracticeVsBotNoticeOpen] = useState(false)
   const [selectedQueueMode, setSelectedQueueMode] = useState<'1v1' | '1v3' | null>(null)
   const playerName = useMemo(() => resolveDisplayName(accessToken), [accessToken])
   const myUserId = useMemo(() => parseUserIdFromAccessToken(accessToken), [accessToken])
@@ -295,27 +267,46 @@ export function Home() {
     let cancelled = false
     setLeaderboardLoading(true)
     setLeaderboardError(null)
+    setLeaderboardYourPlacement(null)
     void (async () => {
       try {
-        const rows = await analyticsApi.fetchLeaderboard(100)
+        const rows = await analyticsApi.fetchLeaderboard(LEADERBOARD_FETCH_LIMIT)
         const ids = [...new Set(rows.map((r) => r.userId))]
         const names = await fetchUsersByIds(accessToken, ids)
         if (cancelled) return
-        setLeaderboardRows(
-          rows.map((r) => ({
-            rank: r.rank,
-            userId: r.userId,
-            username: names.get(r.userId)?.username ?? `Player #${r.userId}`,
-            totalEvents: r.totalEvents,
-            matchesPlayed: r.matchesPlayed,
-            winRatePercent: r.winRatePercent,
-            currentRating: r.currentRating,
-          })),
-        )
+        const mapped = rows.map((r) => ({
+          rank: r.rank,
+          userId: r.userId,
+          username: names.get(r.userId)?.username ?? `Player #${r.userId}`,
+          totalEvents: r.totalEvents,
+          matchesPlayed: r.matchesPlayed,
+          winRatePercent: r.winRatePercent,
+          currentRating: r.currentRating,
+        }))
+        setLeaderboardRows(mapped.slice(0, LEADERBOARD_DISPLAY_TOP))
+
+        if (myUserId == null) {
+          setLeaderboardYourPlacement(null)
+        } else {
+          const mine = mapped.find((r) => r.userId === myUserId)
+          if (!mine) {
+            setLeaderboardYourPlacement('beyond')
+          } else if (mine.rank > LEADERBOARD_DISPLAY_TOP) {
+            setLeaderboardYourPlacement({
+              rank: mine.rank,
+              matchesPlayed: mine.matchesPlayed,
+              winRatePercent: mine.winRatePercent,
+              currentRating: mine.currentRating,
+            })
+          } else {
+            setLeaderboardYourPlacement(null)
+          }
+        }
       } catch (e) {
         if (!cancelled) {
           setLeaderboardError(e instanceof Error ? e.message : 'Could not load leaderboard')
           setLeaderboardRows([])
+          setLeaderboardYourPlacement(null)
         }
       } finally {
         if (!cancelled) setLeaderboardLoading(false)
@@ -324,7 +315,7 @@ export function Home() {
     return () => {
       cancelled = true
     }
-  }, [accessToken, tab, leaderboardRefresh, isGuest])
+  }, [accessToken, tab, leaderboardRefresh, isGuest, myUserId])
 
   useEffect(() => {
     if (queue.phase === 'finding') {
@@ -332,15 +323,6 @@ export function Home() {
       setSelectedQueueMode(null)
     }
   }, [queue.phase])
-
-  useEffect(() => {
-    if (!practiceVsBotNoticeOpen) return
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setPracticeVsBotNoticeOpen(false)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [practiceVsBotNoticeOpen])
 
   useEffect(() => {
     if (!accessToken) return
@@ -479,17 +461,6 @@ export function Home() {
                 </div>
               </button>
 
-              <button
-                type="button"
-                className={menuStyle.tabButton}
-                onClick={() => setPracticeVsBotNoticeOpen(true)}
-              >
-                <div className={menuStyle.tabIconRow}>
-                  <span className={menuStyle.tabIcon}>🤖</span>
-                  <span className={menuStyle.tabTitle}>Practice vs bot</span>
-                </div>
-              </button>
-
               {!isGuest && (
                 <button
                   type="button"
@@ -506,7 +477,7 @@ export function Home() {
 
             <main className={menuStyle.menuMain}>
             <div
-              className={`${menuStyle.tabContentWrap} ${tab === 'settings' || tab === 'howToPlay' ? menuStyle.tabContentWrapScrollable : ''}`}
+              className={`${menuStyle.tabContentWrap} ${tab === 'profile' || tab === 'settings' || tab === 'howToPlay' || tab === 'leaderboard' || tab === 'statistics' ? menuStyle.tabContentWrapScrollable : ''}`}
             >
               {tab === 'profile' && (
                 <>
@@ -583,19 +554,33 @@ export function Home() {
                         {statsLoading ? (
                           <p className={menuStyle.sectionSubtle}>Loading match history…</p>
                         ) : (
-                          <div className={menuStyle.profileMiniBoardsGrid}>
+                          <div className={menuStyle.profileRecentList}>
                             {Array.from({ length: 5 }, (_, idx) => recentMatches[idx] ?? null).map((match, idx) => {
-                              const pieces = parseFenPiecesForMiniBoard(match?.finalFen ?? null)
+                              const outcomeClass =
+                                match == null
+                                  ? menuStyle.profileRecentResultNeutral
+                                  : match.result === 'W'
+                                    ? menuStyle.profileRecentResultWin
+                                    : match.result === 'L'
+                                      ? menuStyle.profileRecentResultLoss
+                                      : match.result === 'D'
+                                        ? menuStyle.profileRecentResultDraw
+                                        : menuStyle.profileRecentResultNeutral
+                              const outcomeLabel =
+                                match == null ? '–' : match.result === '-' ? '–' : match.result
                               return (
-                                <button
+                                <div
                                   key={match ? `${match.opponent}-${match.playedAt ?? idx}` : `empty-${idx}`}
-                                  type="button"
-                                  className={menuStyle.profileMiniBoardCard}
-                                  title="Match details coming soon"
+                                  className={menuStyle.profileRecentRow}
                                 >
-                                  <div className={menuStyle.profileMiniBoardTop}>
-                                    <span className={menuStyle.profileRecentResult}>{match?.result ?? '-'}</span>
-                                    <span className={menuStyle.profileMiniBoardOpponent}>
+                                  <span
+                                    className={`${menuStyle.profileRecentBadge} ${outcomeClass}`}
+                                    aria-hidden
+                                  >
+                                    {outcomeLabel}
+                                  </span>
+                                  <div className={menuStyle.profileRecentMain}>
+                                    <div className={menuStyle.profileRecentOpponent}>
                                       {match == null
                                         ? 'No match yet'
                                         : match.opponentUserId != null
@@ -603,45 +588,18 @@ export function Home() {
                                             match.opponent ??
                                             `Player #${match.opponentUserId}`
                                           : match.opponent ?? 'Unknown opponent'}
-                                    </span>
+                                    </div>
+                                    <div className={menuStyle.profileRecentMeta}>
+                                      <span>{match?.playedAt ? new Date(match.playedAt).toLocaleDateString() : '—'}</span>
+                                      {match != null && match.ratingDelta != null && (
+                                        <span title="Rating change after this match">
+                                          Δ {match.ratingDelta > 0 ? '+' : ''}
+                                          {match.ratingDelta}
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
-                                  <div className={menuStyle.profileMiniBoardSurface}>
-                                    {pieces ? (
-                                      <div className={menuStyle.profileMiniBoardSquares}>
-                                        {pieces.map((piece, squareIdx) => {
-                                          const row = Math.floor(squareIdx / 8)
-                                          const col = squareIdx % 8
-                                          const light = (row + col) % 2 === 0
-                                          return (
-                                            <div
-                                              key={squareIdx}
-                                              className={`${menuStyle.profileMiniSquare} ${light ? menuStyle.profileMiniSquareLight : menuStyle.profileMiniSquareDark}`}
-                                            >
-                                              {piece ? (
-                                                <img
-                                                  src={`/pieces/${miniPieceSpriteName(piece.piece)}-white.png`}
-                                                  alt=""
-                                                  aria-hidden
-                                                  className={`${menuStyle.profileMiniPiece} ${piece.black ? menuStyle.profileMiniPieceBlack : ''}`}
-                                                />
-                                              ) : null}
-                                            </div>
-                                          )
-                                        })}
-                                      </div>
-                                    ) : (
-                                      <div className={menuStyle.profileMiniBoardPlaceholder}>No board data</div>
-                                    )}
-                                  </div>
-                                  <div className={menuStyle.profileMiniBoardMeta}>
-                                    <span>{match?.playedAt ? new Date(match.playedAt).toLocaleDateString() : '-'}</span>
-                                    <span>
-                                      {match?.ratingDelta == null
-                                        ? 'Δ -'
-                                        : `Δ ${match.ratingDelta > 0 ? '+' : ''}${match.ratingDelta}`}
-                                    </span>
-                                  </div>
-                                </button>
+                                </div>
                               )
                             })}
                           </div>
@@ -693,7 +651,7 @@ export function Home() {
 
                       <h4 className={menuStyle.howToPlaySubTitle}>Health &amp; Damage</h4>
                       <ul className={menuStyle.howToPlayList}>
-                        <li>Each player starts with 50 HP.</li>
+                        <li>Each player starts with 30 HP.</li>
                         <li>The maximum damage per round is 10 HP.</li>
                       </ul>
 
@@ -727,7 +685,7 @@ export function Home() {
                       <ul className={menuStyle.howToPlayList}>
                         <li>Shop phase → battle phase loop</li>
                         <li>Piece placement and positioning</li>
-                        <li>50 HP per player</li>
+                        <li>30 HP per player</li>
                         <li>Maximum 10 damage per round</li>
                       </ul>
 
@@ -769,8 +727,10 @@ export function Home() {
 
               {tab === 'leaderboard' && (
                 <>
-                  <h2 className={menuStyle.sectionTitle}>LEADERBOARD</h2>
-                  <p className={menuStyle.sectionSubtle}>Top 100 players.</p>
+                  <div className={menuStyle.leaderboardHeader}>
+                    <h2 className={menuStyle.leaderboardTitle}>LEADERBOARD</h2>
+                    <p className={menuStyle.leaderboardSubtitle}>Top 100 players.</p>
+                  </div>
                   {leaderboardError && (
                     <p className={style.error} style={{ marginTop: 8 }}>
                       {leaderboardError}
@@ -809,6 +769,42 @@ export function Home() {
                       Refresh
                     </button>
                   </div>
+                  {!leaderboardLoading &&
+                    !leaderboardError &&
+                    myUserId != null &&
+                    leaderboardYourPlacement !== null && (
+                      <div className={menuStyle.leaderboardYourRankSection}>
+                        {leaderboardYourPlacement === 'beyond' ? (
+                          <>
+                            <p className={menuStyle.leaderboardYourRankLabel}>Your position</p>
+                            <p className={menuStyle.sectionSubtle} style={{ marginTop: 6 }}>
+                              You're ranked outside the top {LEADERBOARD_FETCH_LIMIT} players in this list. Keep playing
+                              to climb up.
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <p className={menuStyle.leaderboardYourRankLabel}>Your position</p>
+                            <div className={menuStyle.listRow}>
+                              <span className={menuStyle.badgeDot}>{leaderboardYourPlacement.rank}</span>
+                              <div className={menuStyle.rowMain}>
+                                <div className={menuStyle.rowTitle}>
+                                  {playerName} (you)
+                                </div>
+                                <div className={menuStyle.rowSub}>
+                                  Games {leaderboardYourPlacement.matchesPlayed} · Win rate{' '}
+                                  {leaderboardYourPlacement.winRatePercent.toFixed(1)}%
+                                </div>
+                              </div>
+                              <div className={menuStyle.rowValue}>{leaderboardYourPlacement.currentRating}</div>
+                            </div>
+                            <p className={menuStyle.leaderboardYourRankHint}>
+                              Below the top {LEADERBOARD_DISPLAY_TOP} — shown because you're within the extended rankings.
+                            </p>
+                          </>
+                        )}
+                      </div>
+                    )}
                 </>
               )}
 
@@ -1399,40 +1395,6 @@ export function Home() {
                 }}
               >
                 Play
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {practiceVsBotNoticeOpen ? (
-        <div
-          className={menuStyle.noticeModalOverlay}
-          role="presentation"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setPracticeVsBotNoticeOpen(false)
-          }}
-        >
-          <div
-            className={menuStyle.noticeModalPanel}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="practice-vs-bot-notice-title"
-          >
-            <h2 id="practice-vs-bot-notice-title" className={menuStyle.noticeModalTitle}>
-              Practice vs bot
-            </h2>
-            <p className={menuStyle.noticeModalBody}>
-              This mode is still in development. A dedicated practice flow against an AI opponent will be added in a
-              future update. Use <strong>How to play</strong> for the interactive tutorial in the meantime.
-            </p>
-            <div className={menuStyle.noticeModalActions}>
-              <button
-                type="button"
-                className={menuStyle.noticeModalButton}
-                onClick={() => setPracticeVsBotNoticeOpen(false)}
-              >
-                Got it
               </button>
             </div>
           </div>

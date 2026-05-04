@@ -139,13 +139,18 @@ export function AdminAnalytics() {
       <header className={style.topbar}>
         <div className={style.titleBlock}>
           <Link to="/" className={style.back}>
-            ← Back
+            <span className={style.backIconWrap} aria-hidden>
+              <svg className={style.backIcon} viewBox="0 0 24 24" focusable="false">
+                <path
+                  fill="currentColor"
+                  d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"
+                />
+              </svg>
+            </span>
+            <span>Back</span>
           </Link>
           <div>
             <h1>Live Game Analytics</h1>
-            <p className={style.subtitle}>
-              Realtime operational dashboard, fed by Redis pub/sub via SSE
-            </p>
           </div>
         </div>
         <ConnectionPill state={conn} stale={stale} />
@@ -228,9 +233,6 @@ export function AdminAnalytics() {
       <footer className={style.footer}>
         <span>
           Last update: <strong>{formatTime(metrics.lastUpdated)}</strong>
-        </span>
-        <span>
-          Stream target latency ≤ 1–2s · backed by Redis pub/sub <code>analytics:events</code>
         </span>
       </footer>
     </div>

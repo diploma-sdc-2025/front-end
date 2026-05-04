@@ -9,6 +9,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
+    /** IPv4 loopback so nginx `proxy_pass http://127.0.0.1:3000` works (avoid IPv6-only listen). */
+    host: '127.0.0.1',
     // nginx forwards Host: kon-autochess.francecentral.cloudapp.azure.com
     allowedHosts: ['kon-autochess.francecentral.cloudapp.azure.com'],
     proxy: {

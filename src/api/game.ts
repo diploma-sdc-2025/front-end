@@ -46,6 +46,8 @@ export interface ShopStateResponse {
   money: number
   hp: number
   hpMax: number
+  /** Opponent HP when the game service includes it on `/shop` (optional). */
+  opponentHp?: number
   items: ShopItemState[]
   bench: BenchSlotDto[]
   board: BoardPieceDto[]
@@ -82,7 +84,7 @@ const SHOP_PIECES: ShopPiece[] = ['pawn', 'knight', 'bishop', 'rook', 'queen']
 /** White POV: rank 8 at row 0. Pawns may use chess ranks 2–4 only → rows 4–6. */
 export const PAWN_RANK_ROWS_MIN = 4
 /** Must stay in sync with `PlayerResources.DEFAULT_HP` in game-service (starting / max HP). */
-export const GAME_HP_MAX = 50
+export const GAME_HP_MAX = 30
 
 export const PAWN_RANK_ROWS_MAX = 6
 /** King may use any file a–h → columns 0–7. */
@@ -312,10 +314,18 @@ export const gameApi = {
     const hpMax = Number.isFinite(Number(data.hpMax)) ? Math.max(1, Math.trunc(Number(data.hpMax))) : GAME_HP_MAX
     const hpRaw = Number.isFinite(Number(data.hp)) ? Math.trunc(Number(data.hp)) : hpMax
     const hp = Math.min(Math.max(0, hpRaw), hpMax)
+
+    const oppHpRaw = raw.opponentHp ?? raw.opponent_hp
+    let opponentHp: number | undefined
+    if (Number.isFinite(Number(oppHpRaw))) {
+      opponentHp = Math.min(Math.max(0, Math.trunc(Number(oppHpRaw))), GAME_HP_MAX)
+    }
+
     return {
       ...data,
       hp,
       hpMax,
+      opponentHp,
       bench: Array.isArray(data.bench) ? data.bench : [],
       board,
       king,
