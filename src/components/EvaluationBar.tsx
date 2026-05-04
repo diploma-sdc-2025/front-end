@@ -19,12 +19,13 @@ type Props = {
   centipawns: number
   className?: string
   invert?: boolean
+  horizontalOnMobile?: boolean
 }
 
 /**
  * Vertical bar: white on top, black on bottom; fill shows who is ahead (Stockfish cp from White’s view).
  */
-export function EvaluationBar({ centipawns, className, invert = false }: Props) {
+export function EvaluationBar({ centipawns, className, invert = false, horizontalOnMobile = false }: Props) {
   const whiteShare = centipawnsToWhiteBarShare(centipawns)
   const whitePct = whiteShare * 100
   const blackPct = 100 - whitePct
@@ -35,6 +36,14 @@ export function EvaluationBar({ centipawns, className, invert = false }: Props) 
   const whiteOnTop = !invert
   const topPct = whiteOnTop ? whitePct : blackPct
   const bottomPct = 100 - topPct
+  const topStyle = {
+    height: `${topPct}%`,
+    ['--eval-segment' as '--eval-segment']: `${topPct}%`,
+  } as const
+  const bottomStyle = {
+    height: `${bottomPct}%`,
+    ['--eval-segment' as '--eval-segment']: `${bottomPct}%`,
+  } as const
 
   const aria = even
     ? 'Position is equal'
@@ -47,14 +56,16 @@ export function EvaluationBar({ centipawns, className, invert = false }: Props) 
       className={`${gameStyle.evalBarWrap} ${className ?? ''}`}
       aria-label={aria}
     >
-      <div className={gameStyle.evalBarTrack}>
+      <div
+        className={`${gameStyle.evalBarTrack} ${horizontalOnMobile ? gameStyle.evalBarTrackHorizontalMobile : ''}`}
+      >
         <div
           className={whiteOnTop ? gameStyle.evalBarWhite : gameStyle.evalBarBlack}
-          style={{ height: `${topPct}%` }}
+          style={topStyle}
         />
         <div
           className={whiteOnTop ? gameStyle.evalBarBlack : gameStyle.evalBarWhite}
-          style={{ height: `${bottomPct}%` }}
+          style={bottomStyle}
         />
         {whiteAhead ? (
           <div

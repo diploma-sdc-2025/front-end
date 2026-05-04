@@ -88,6 +88,28 @@ function opponentHpFromBattle(res: BattleRoundResponse): number {
   return res.currentUserIsWhite ? res.blackHp : res.whiteHp
 }
 
+/** Matches battle-service `BattleService`: 100 cp ≈ +1.0 on eval bar → 1 HP per full pawn, cap {@link GAME_HP_MAX}. */
+const BATTLE_EVAL_DAMAGE_THRESHOLD_CP = 100
+
+function battleDamageFromCentipawns(evaluationScore: number): number {
+  const absEval = Math.abs(evaluationScore)
+  if (absEval < BATTLE_EVAL_DAMAGE_THRESHOLD_CP) return 0
+  return Math.min(GAME_HP_MAX, Math.floor(absEval / BATTLE_EVAL_DAMAGE_THRESHOLD_CP))
+}
+
+/** Tutorial: you are White, Trainer is Black; centipawns are Stockfish from White’s POV (same as live matches). */
+function tutorialHpAfterBattleRound(
+  playerHp: number,
+  trainerHp: number,
+  centipawnsWhitePov: number,
+): { player: number; trainer: number } {
+  const dmg = battleDamageFromCentipawns(centipawnsWhitePov)
+  if (dmg === 0) return { player: playerHp, trainer: trainerHp }
+  if (centipawnsWhitePov > 0) return { player: playerHp, trainer: Math.max(0, trainerHp - dmg) }
+  if (centipawnsWhitePov < 0) return { player: Math.max(0, playerHp - dmg), trainer: trainerHp }
+  return { player: playerHp, trainer: trainerHp }
+}
+
 /** Registered players see a static ±10 hint on the end screen; guests do not. */
 function matchEndRatingOverlay(won: boolean, token: string | null): { won: boolean; ratingDelta?: number } {
   if (!token || parseIsGuestFromAccessToken(token)) return { won }
@@ -262,6 +284,7 @@ export function Game({ mode = 'normal' }: GameProps) {
   const [tutorialEvalHintAcknowledged, setTutorialEvalHintAcknowledged] = useState(false)
   const [tutorialCurrencyHintShown, setTutorialCurrencyHintShown] = useState(false)
   const [tutorialBattlesCompleted, setTutorialBattlesCompleted] = useState(0)
+  const [tutorialHp, setTutorialHp] = useState(() => ({ player: GAME_HP_MAX, trainer: GAME_HP_MAX }))
   const [tutorialRemoveHintAcknowledged, setTutorialRemoveHintAcknowledged] = useState(false)
   const [showTutorialTimerBattleHint, setShowTutorialTimerBattleHint] = useState(false)
   const [tutorialTimerBattleHintAcknowledged, setTutorialTimerBattleHintAcknowledged] = useState(false)
@@ -269,6 +292,8 @@ export function Game({ mode = 'normal' }: GameProps) {
   const [tutorialKnightBishopHintAcknowledged, setTutorialKnightBishopHintAcknowledged] = useState(false)
   const [tutorialEnemyPieces, setTutorialEnemyPieces] = useState<BoardPieceDto[]>(() => [...TUTORIAL_ENEMY_PIECES])
   const [showTutorialComplete, setShowTutorialComplete] = useState(false)
+  /** Tutorial shop on narrow viewports: real column order (avoids `display:contents` bugs on iOS Safari). */
+  const [tutorialMobileLayout, setTutorialMobileLayout] = useState(false)
   const previousTutorialMoneyRef = useRef(tutorialPawnMoney)
   /** Only reset shop countdown when `tutorialTimerSeed` bumps (new shop round), not when tutorial popups open/close. */
   const tutorialShopTimerLastSeedRef = useRef<number | null>(null)
@@ -345,6 +370,14 @@ export function Game({ mode = 'normal' }: GameProps) {
     setOpponentUsername('')
     setBattleRestoreDone(false)
   }, [matchId])
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 900px)')
+    const sync = () => setTutorialMobileLayout(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
 
   useEffect(() => {
     if (isTutorialMode) return
@@ -895,6 +928,48 @@ export function Game({ mode = 'normal' }: GameProps) {
     }
   }, [shopCosts, tutorialBenchSlots, tutorialBoardPieces, tutorialKnightBishopHintAcknowledged])
 
+  const handleTutorialSellTap = useCallback(() => {
+    if (!tapSelection || tapSelection.source === 'king') return
+    let refund = 0
+    if (tapSelection.source === 'bench') {
+      const slot = tapSelection.benchSlot
+      if (slot < 0 || slot >= tutorialBenchSlots.length) return
+      const piece = tutorialBenchSlots[slot]
+      if (!piece) return
+      refund = shopCosts[piece]
+      setTutorialBenchSlots((prev) => {
+        const next = [...prev]
+        next[slot] = null
+        return next
+      })
+    } else {
+      const placed = tutorialBoardPieces.find((p) => p.col === tapSelection.col && p.row === tapSelection.row)
+      if (!placed) return
+      refund = shopCosts[placed.piece]
+      setTutorialBoardPieces((prev) =>
+        prev.filter((p) => !(p.col === tapSelection.col && p.row === tapSelection.row)),
+      )
+    }
+    if (refund > 0) {
+      setTutorialPawnMoney((n) => {
+        const next = n + refund
+        setTutorialPawnMoneyCap((cap) => Math.max(cap, next))
+        return next
+      })
+      setShopError('')
+      if (!tutorialKnightBishopHintAcknowledged) {
+        setShowTutorialKnightBishopHint(true)
+      }
+      setTapSelection(null)
+    }
+  }, [
+    tapSelection,
+    tutorialBenchSlots,
+    shopCosts,
+    tutorialBoardPieces,
+    tutorialKnightBishopHintAcknowledged,
+  ])
+
   const handleTutorialBuy = useCallback(
     (piece: ShopPiece) => {
       const cost = shopCosts[piece]
@@ -1068,9 +1143,11 @@ export function Game({ mode = 'normal' }: GameProps) {
     if (!isTutorialMode || !tutorialInBattle) return
     if (!tutorialEvalHintAcknowledged) return
     const pvLen = tutorialBattleState?.eval.principalVariation?.length ?? 0
+    const centipawns = tutorialBattleState?.eval.centipawns ?? 0
     const replayMs = Math.max(2500, Math.min(PV_REPLAY_MAX_PLIES, pvLen) * 700)
     const totalBattleMs = replayMs + BATTLE_END_PAUSE_MS
     const id = window.setTimeout(() => {
+      setTutorialHp((prev) => tutorialHpAfterBattleRound(prev.player, prev.trainer, centipawns))
       setTutorialInBattle(false)
       setTutorialBattleState(null)
       setTutorialBattleError('')
@@ -1413,6 +1490,68 @@ export function Game({ mode = 'normal' }: GameProps) {
     }
   }
 
+  const handleSellTap = useCallback(async () => {
+    if (!tapSelection || tapSelection.source === 'king') return
+    if (!accessToken || !matchId || placingPiece || shopInteractionsLocked) return
+    const id = parseInt(matchId, 10)
+    if (!Number.isFinite(id)) return
+    setPlacingPiece(true)
+    setShopError('')
+    try {
+      if (tapSelection.source === 'bench') {
+        setBenchSlots((prev) => {
+          const next = [...prev]
+          next[tapSelection.benchSlot] = null
+          return next
+        })
+      } else {
+        setBoardPieces((prev) =>
+          prev.filter((p) => !(p.col === tapSelection.col && p.row === tapSelection.row)),
+        )
+      }
+      shopSyncRequestIdRef.current += 1
+      let sellRes: Awaited<ReturnType<typeof gameApi.sellPiece>>
+      if (tapSelection.source === 'bench') {
+        sellRes = await gameApi.sellPiece(id, { benchSlot: tapSelection.benchSlot }, accessToken)
+      } else {
+        sellRes = await gameApi.sellPiece(
+          id,
+          { fromX: tapSelection.col, fromY: tapSelection.row },
+          accessToken,
+        )
+      }
+      setPawnMoney(sellRes.moneyAfter)
+      setPawnMoneyCap((prev) => Math.max(prev, sellRes.moneyAfter, sellRes.moneyBefore))
+      setShopAffordable((prev) => {
+        const next = { ...prev }
+        for (const p of SHOP_ORDER) next[p] = sellRes.moneyAfter >= shopCosts[p]
+        return next
+      })
+      setTapSelection(null)
+      shopSyncRequestIdRef.current += 1
+      scheduleShopLayoutRefresh(id, accessToken, 0)
+    } catch (err) {
+      if (await applyFinishedMatchFromServerError(id, accessToken, err)) {
+        setPlacingPiece(false)
+        return
+      }
+      await recoverShopAfterFailedMutation(id, accessToken)
+      setShopError(err instanceof Error ? err.message : 'Could not sell piece')
+    } finally {
+      setPlacingPiece(false)
+    }
+  }, [
+    tapSelection,
+    accessToken,
+    matchId,
+    placingPiece,
+    shopInteractionsLocked,
+    shopCosts,
+    applyFinishedMatchFromServerError,
+    recoverShopAfterFailedMutation,
+    scheduleShopLayoutRefresh,
+  ])
+
   if (!accessToken) {
     return (
       <div className={style.page}>
@@ -1423,6 +1562,225 @@ export function Game({ mode = 'normal' }: GameProps) {
   }
 
   if (isTutorialMode) {
+    /** Desktop / battle: actions stay in the board shell. Narrow shop: actions render after bench+shop (see below). */
+    const showTutorialAsideInShell = !tutorialMobileLayout || tutorialInBattle
+
+    const renderTutorialShopArea = () => !tutorialInBattle ? (
+      <div className={gameStyle.tutorialShopGuideArea}>
+        <div className={gameStyle.tutorialBenchAnchor}>
+          {showTutorialBenchHint ? (
+            <div className={gameStyle.tutorialBenchHint} role="dialog" aria-modal="true" aria-label="Tutorial bench hint">
+              <p className={gameStyle.tutorialBenchHintText}>This is your bench where the pieces are saved.</p>
+              <button type="button" className={gameStyle.tutorialBenchHintButton} onClick={() => setShowTutorialBenchHint(false)}>OK</button>
+            </div>
+          ) : null}
+          {showTutorialDragHint ? (
+            <div className={gameStyle.tutorialBenchHint} role="dialog" aria-modal="true" aria-label="Tutorial drag hint">
+              <p className={gameStyle.tutorialBenchHintText}>Tap a piece to select it, then tap a board square to place it. On desktop you can also drag.</p>
+              <button type="button" className={gameStyle.tutorialBenchHintButton} onClick={() => setShowTutorialDragHint(false)}>OK</button>
+            </div>
+          ) : null}
+          <div className={gameStyle.bench} aria-label="Tutorial bench">
+            {tutorialBenchSlots.map((piece, i) => (
+              <div key={i} className={gameStyle.benchSlot} aria-label={piece ? `Bench slot ${i + 1}, ${piece}` : `Bench slot ${i + 1}`}>
+                {piece ? (
+                  <img
+                    src={PIECE_SPRITES[piece]}
+                    alt=""
+                    aria-hidden
+                    className={`${gameStyle.benchPiece} ${gameStyle.benchPieceDraggable} ${tapSelection?.source === 'bench' && tapSelection.benchSlot === i ? gameStyle.benchPieceSelected : ''}`}
+                    draggable
+                    onDragStart={(e) => {
+                      assignSpriteDragPreviewCanvas(e.nativeEvent, e.currentTarget)
+                      setBenchDragData(e.dataTransfer, i)
+                      startSellableDrag()
+                    }}
+                    onDragEnd={() => endSellableDrag()}
+                    onClick={() => {
+                      if (!tutorialDragHintShown) {
+                        setTutorialDragHintShown(true)
+                        setShowTutorialDragHint(true)
+                      }
+                      if (tapSelection?.source === 'bench' && tapSelection.benchSlot === i) {
+                        setTapSelection(null)
+                      } else {
+                        setTapSelection({ source: 'bench', benchSlot: i })
+                      }
+                    }}
+                  />
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className={gameStyle.tutorialShopAnchor}>
+          {showTutorialShopHint ? (
+            <div className={gameStyle.tutorialShopHint} role="dialog" aria-modal="true" aria-label="Tutorial shop hint">
+              <p className={gameStyle.tutorialShopHintText}>You can buy pieces here.</p>
+              <button type="button" className={gameStyle.tutorialShopHintButton} onClick={() => { setShowTutorialShopHint(false) }}>OK</button>
+            </div>
+          ) : null}
+          {showTutorialKnightBishopHint ? (
+            <div className={gameStyle.tutorialKnightBishopHint} role="dialog" aria-modal="true" aria-label="Knight and bishop shop hint">
+              <p className={gameStyle.tutorialKnightBishopHintText}>
+                Here are the knight and bishop. Each costs 3 pawns - you can buy them when you have enough.
+              </p>
+              <button type="button" className={gameStyle.tutorialKnightBishopHintButton} onClick={() => { setShowTutorialKnightBishopHint(false); setTutorialKnightBishopHintAcknowledged(true) }}>OK</button>
+            </div>
+          ) : null}
+          <div className={gameStyle.hudInner}>
+            <div className={gameStyle.shopSellRow}>
+              <div className={gameStyle.shop} aria-label="Piece shop">
+                <button type="button" className={gameStyle.shopItem} aria-label={SHOP_ORDER[0]} onClick={() => handleTutorialBuy(SHOP_ORDER[0]!)} disabled={tutorialPawnMoney < shopCosts[SHOP_ORDER[0]!] || !tutorialBenchSlots.some((v) => v == null)} title={`Cost: ${shopCosts[SHOP_ORDER[0]!]}`}>
+                  <img src={PIECE_SPRITES[SHOP_ORDER[0]!]} alt="" aria-hidden className={gameStyle.shopPieceImage} />
+                </button>
+                <div className={gameStyle.tutorialKnightBishopPair}>
+                  {(['knight', 'bishop'] as const).map((piece) => (
+                    <button key={piece} type="button" className={gameStyle.shopItem} aria-label={piece} onClick={() => handleTutorialBuy(piece)} disabled={tutorialPawnMoney < shopCosts[piece] || !tutorialBenchSlots.some((v) => v == null)} title={`Cost: ${shopCosts[piece]}`}>
+                      <img src={PIECE_SPRITES[piece]} alt="" aria-hidden className={gameStyle.shopPieceImage} />
+                    </button>
+                  ))}
+                </div>
+                {SHOP_ORDER.slice(3).map((piece) => (
+                  <button key={piece} type="button" className={gameStyle.shopItem} aria-label={piece} onClick={() => handleTutorialBuy(piece)} disabled={tutorialPawnMoney < shopCosts[piece] || !tutorialBenchSlots.some((v) => v == null)} title={`Cost: ${shopCosts[piece]}`}>
+                    <img src={PIECE_SPRITES[piece]} alt="" aria-hidden className={gameStyle.shopPieceImage} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    ) : null
+
+    const renderTutorialTimerBattleHintDialog = () =>
+      showTutorialTimerBattleHint ? (
+        <div className={gameStyle.tutorialTimerBattleHint} role="dialog" aria-modal="true" aria-label="Round timer hint">
+          <p className={gameStyle.tutorialTimerBattleHintText}>When the time runs out, the battle begins.</p>
+          <button
+            type="button"
+            className={gameStyle.tutorialTimerBattleHintButton}
+            onClick={() => {
+              setShowTutorialTimerBattleHint(false)
+              setTutorialTimerBattleHintAcknowledged(true)
+            }}
+          >
+            OK
+          </button>
+        </div>
+      ) : null
+
+    const renderTutorialAside = () => (
+      <aside
+        className={`${gameStyle.rightActions} ${gameStyle.tutorialPostShopActions} ${tutorialInBattle ? gameStyle.tutorialBattleActions : ''}`}
+        aria-label="Tutorial actions"
+      >
+        <div className={gameStyle.tutorialRoundTimerAnchor}>
+          <div className={gameStyle.tutorialRoundTimerHitArea}>
+            {!tutorialMobileLayout || tutorialInBattle ? renderTutorialTimerBattleHintDialog() : null}
+            <div className={gameStyle.roundTimer} aria-label="Round timer">
+              <span className={gameStyle.roundTimerLabel}>{tutorialInBattle ? 'Battle' : 'Round timer'}</span>
+              <span className={gameStyle.roundTimerValue}>
+                {tutorialInBattle ? 'Battle' : formatRoundTime(tutorialRoundTimeLeft)}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className={`${gameStyle.matchButtons} ${gameStyle.tutorialMatchButtons}`}>
+          <button
+            type="button"
+            className={`${gameStyle.drawButton} ${gameStyle.tutorialControlButton}`}
+            aria-label="Back to menu"
+            onClick={() => navigate('/', { replace: true })}
+          >
+            <span className={gameStyle.tutorialControlIcon} aria-hidden>
+              ←
+            </span>
+            <span className={gameStyle.tutorialControlLabel}>Back to menu</span>
+          </button>
+          <button
+            type="button"
+            className={`${gameStyle.resignButton} ${gameStyle.tutorialControlButton}`}
+            aria-label="Reset setup"
+            onClick={() => {
+              setTutorialBenchSlots([...TUTORIAL_BENCH])
+              setTutorialBoardPieces([])
+              setTutorialKingSquare({ col: 4, row: 7 })
+              setTutorialPawnMoney(TUTORIAL_START_MONEY)
+              setTutorialPawnMoneyCap(TUTORIAL_START_MONEY)
+              setTutorialRoundTimeLeft(ROUND_DURATION_SEC)
+              setTutorialTimerSeed((n) => n + 1)
+              setTutorialInBattle(false)
+              setTutorialBattleState(null)
+              setTutorialBattleError('')
+              setTutorialPvMovesApplied(0)
+              setShopError('')
+              setTutorialBattlesCompleted(0)
+              setTutorialRemoveHintAcknowledged(false)
+              setTutorialHp({ player: GAME_HP_MAX, trainer: GAME_HP_MAX })
+              setShowTutorialTimerBattleHint(false)
+              setTutorialTimerBattleHintAcknowledged(false)
+              setShowTutorialKnightBishopHint(false)
+              setTutorialKnightBishopHintAcknowledged(false)
+              setTutorialEnemyPieces([...TUTORIAL_ENEMY_PIECES])
+              setShowTutorialComplete(false)
+            }}
+          >
+            <span className={gameStyle.tutorialControlIcon} aria-hidden>
+              ↻
+            </span>
+            <span className={gameStyle.tutorialControlLabel}>Reset setup</span>
+          </button>
+          <div className={gameStyle.tutorialRemoveAnchor}>
+            {showTutorialRemoveHint ? (
+              <div className={gameStyle.tutorialRemoveHint} role="dialog" aria-modal="true" aria-label="Tutorial remove hint">
+                <p className={gameStyle.tutorialRemoveHintText}>
+                  This is Remove. Drag a piece from your bench or board here to remove it and get its cost back in pawns.
+                </p>
+                <button type="button" className={gameStyle.tutorialRemoveHintButton} onClick={() => setTutorialRemoveHintAcknowledged(true)}>
+                  OK
+                </button>
+              </div>
+            ) : null}
+            <div
+              className={`${gameStyle.sellBin} ${sellBinVisible || showTutorialRemoveHint || tapSelection?.source === 'bench' || tapSelection?.source === 'board' ? gameStyle.sellBinVisible : ''} ${sellBinOver ? gameStyle.sellBinOver : ''}`}
+              onDragEnter={(ev) => {
+                ev.preventDefault()
+                setSellBinOver(true)
+              }}
+              onDragOver={(ev) => {
+                ev.preventDefault()
+                ev.dataTransfer.dropEffect = 'move'
+                setSellBinOver(true)
+              }}
+              onDragLeave={() => setSellBinOver(false)}
+              onDrop={(ev) => handleTutorialSellDrop(ev)}
+              onClick={handleTutorialSellTap}
+              role="region"
+              aria-label="Drop here to remove piece"
+            >
+              <svg
+                className={gameStyle.sellBinIcon}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M3 6h18" />
+                <path d="M8 6V4h8v2" />
+                <path d="M6 6l1 14h10l1-14" />
+                <path d="M10 11v6M14 11v6" />
+              </svg>
+              <span className={gameStyle.sellBinLabel}>Remove</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+    )
+
     return (
       <div className={gameStyle.page}>
         {hasBlockingTutorialHint ? <div className={gameStyle.tutorialHintBackdrop} aria-hidden /> : null}
@@ -1466,41 +1824,160 @@ export function Game({ mode = 'normal' }: GameProps) {
         ) : null}
         <div className={gameStyle.boardArea}>
           <div className={gameStyle.boardWithHp}>
-            <div className={gameStyle.boardColumn}>
-              <p className={gameStyle.matchPlayersBanner} aria-label="Tutorial match">
-                <span className={gameStyle.matchPlayerSelf}>
-                  <span className={gameStyle.matchNameGroup}>
-                    <span className={gameStyle.matchPlayerName}>You</span>
-                  </span>
-                  <span className={gameStyle.matchHpPill} aria-label={`Your HP ${GAME_HP_MAX}`}>
-                    {GAME_HP_MAX}
-                  </span>
-                </span>
-                <span className={gameStyle.matchPlayersVs}>vs</span>
-                <span className={gameStyle.matchPlayerOpponentSlot}>
-                  <span className={gameStyle.matchNameGroup}>
-                    <span className={gameStyle.matchPlayerName}>Trainer</span>
-                  </span>
-                  <span
-                    className={`${gameStyle.matchHpPill} ${gameStyle.matchHpPillOpponent}`}
-                    aria-label={`Opponent HP ${GAME_HP_MAX}`}
-                  >
-                    {GAME_HP_MAX}
-                  </span>
-                </span>
-              </p>
-              {!tutorialInBattle && shopError ? (
-                <p className={gameStyle.shopFeedback} role="alert" aria-live="polite">
-                  {shopError}
-                </p>
+            <div className={`${gameStyle.boardColumn} ${gameStyle.tutorialBoardColumn}`}>
+              {tutorialMobileLayout ? (
+                <>
+                  {!tutorialInBattle ? (
+                    <div className={gameStyle.tutorialRoundTimerAnchor}>
+                      <div className={gameStyle.tutorialRoundTimerHitArea}>
+                        {renderTutorialTimerBattleHintDialog()}
+                        <div className={`${gameStyle.roundTimer} ${gameStyle.mobileTopTimer}`} aria-label="Round timer">
+                          <span className={gameStyle.roundTimerLabel}>Round timer</span>
+                          <span className={gameStyle.roundTimerValue}>{formatRoundTime(tutorialRoundTimeLeft)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                  {!tutorialInBattle ? (
+                    <p className={gameStyle.matchPlayersBanner} aria-label="Tutorial match">
+                      <span className={gameStyle.matchPlayerSelf}>
+                        <span className={gameStyle.matchNameGroup}>
+                          <span className={gameStyle.matchPlayerName}>You</span>
+                        </span>
+                        <span className={gameStyle.matchHpPill} aria-label={`Your HP ${tutorialHp.player}`}>
+                          {tutorialHp.player}
+                        </span>
+                      </span>
+                      <span className={gameStyle.matchPlayersVs}>vs</span>
+                      <span className={gameStyle.matchPlayerOpponentSlot}>
+                        <span className={gameStyle.matchNameGroup}>
+                          <span className={gameStyle.matchPlayerName}>Trainer</span>
+                        </span>
+                        <span
+                          className={`${gameStyle.matchHpPill} ${gameStyle.matchHpPillOpponent}`}
+                          aria-label={`Opponent HP ${tutorialHp.trainer}`}
+                        >
+                          {tutorialHp.trainer}
+                        </span>
+                      </span>
+                    </p>
+                  ) : null}
+                  {!tutorialInBattle && shopError ? (
+                    <p className={gameStyle.shopFeedback} role="alert" aria-live="polite">
+                      {shopError}
+                    </p>
+                  ) : null}
+                </>
               ) : null}
+              {tutorialMobileLayout && !tutorialInBattle ? (
+                <>
+                  <div className={gameStyle.boardMiddleColumn}>
+                    <div className={gameStyle.boardSlot}>
+                      <LobbyChessBoard
+                        playerColor="white"
+                        className={lobbyBoardStyle.boardCompact}
+                        kingSquare={tutorialKingSquare}
+                        placedPieces={tutorialBoardPieces}
+                        shadeOpponentRanks
+                        onDropBenchOnSquare={handleTutorialPlaceFromBench}
+                        onMoveBoardPiece={handleTutorialMoveBoardPiece}
+                        onMoveKing={handleTutorialMoveKing}
+                        onSellablePieceDragStart={startSellableDrag}
+                        onSellablePieceDragEnd={endSellableDrag}
+                        highlightSquare={
+                          tapSelection?.source === 'board' ? { col: tapSelection.col, row: tapSelection.row }
+                          : tapSelection?.source === 'king' ? tutorialKingSquare
+                          : null
+                        }
+                        onTapSquare={(col, row) => {
+                          if (!tapSelection) return
+                          if (tapSelection.source === 'bench') {
+                            handleTutorialPlaceFromBench(col, row, tapSelection.benchSlot)
+                          } else if (tapSelection.source === 'board') {
+                            handleTutorialMoveBoardPiece(tapSelection.col, tapSelection.row, col, row)
+                          } else if (tapSelection.source === 'king') {
+                            handleTutorialMoveKing(col, row)
+                          }
+                          setTapSelection(null)
+                        }}
+                        onTapBoardPiece={(col, row) => {
+                          if (tapSelection?.source === 'board' && tapSelection.col === col && tapSelection.row === row) {
+                            setTapSelection(null)
+                          } else {
+                            setTapSelection({ source: 'board', col, row })
+                          }
+                        }}
+                        onTapKing={() => {
+                          if (tapSelection?.source === 'king') {
+                            setTapSelection(null)
+                          } else {
+                            setTapSelection({ source: 'king' })
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className={gameStyle.leftBars}>
+                    <aside className={gameStyle.hpPanel} aria-label="Player HP">
+                      <div className={gameStyle.hpValue}>{tutorialHp.player}</div>
+                      <div className={gameStyle.hpTrack}>
+                        <div
+                          className={gameStyle.hpFill}
+                          style={{
+                            '--hp-pct': `${GAME_HP_MAX <= 0 ? 0 : Math.min(100, (tutorialHp.player / GAME_HP_MAX) * 100)}%`,
+                          } as CSSProperties}
+                        />
+                      </div>
+                    </aside>
+                    <div className={gameStyle.tutorialCurrencyAnchor}>
+                      {showTutorialCurrencyHint ? (
+                        <div className={gameStyle.tutorialCurrencyHint} role="dialog" aria-modal="true" aria-label="Tutorial currency hint">
+                          <p className={gameStyle.tutorialCurrencyHintText}>
+                            this is your currency, you start with 2 and get +2 each round
+                          </p>
+                          <button
+                            type="button"
+                            className={gameStyle.tutorialCurrencyHintButton}
+                            onClick={() => setShowTutorialCurrencyHint(false)}
+                          >
+                            OK
+                          </button>
+                        </div>
+                      ) : null}
+                      <aside className={gameStyle.moneyPanel} aria-label="Pawn money">
+                        <div className={gameStyle.moneyValue}>
+                          {tutorialPawnMoney}/{tutorialPawnMoneyCap}
+                        </div>
+                        <div className={gameStyle.moneyTrack}>
+                          <div className={gameStyle.moneyFill}>
+                            {Array.from({ length: tutorialPawnMoneyCap }, (_, i) => (
+                              <img
+                                key={i}
+                                src={PIECE_SPRITES.pawn}
+                                alt=""
+                                aria-hidden
+                                className={`${gameStyle.moneyPawnImage} ${i < tutorialPawnMoney ? gameStyle.moneyPawnImageFilled : gameStyle.moneyPawnImageEmpty}`}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      </aside>
+                    </div>
+                  </div>
+                </>
+              ) : (
               <div className={gameStyle.boardShell}>
                 {!tutorialInBattle ? (
                   <div className={gameStyle.leftBars}>
                     <aside className={gameStyle.hpPanel} aria-label="Player HP">
-                      <div className={gameStyle.hpValue}>{GAME_HP_MAX}</div>
+                      <div className={gameStyle.hpValue}>{tutorialHp.player}</div>
                       <div className={gameStyle.hpTrack}>
-                        <div className={gameStyle.hpFill} style={{ '--hp-pct': '100%' } as CSSProperties} />
+                        <div
+                          className={gameStyle.hpFill}
+                          style={{
+                            '--hp-pct': `${GAME_HP_MAX <= 0 ? 0 : Math.min(100, (tutorialHp.player / GAME_HP_MAX) * 100)}%`,
+                          } as CSSProperties}
+                        />
                       </div>
                     </aside>
                     <div className={gameStyle.tutorialCurrencyAnchor}>
@@ -1541,7 +2018,7 @@ export function Game({ mode = 'normal' }: GameProps) {
                 ) : (
                   <div className={gameStyle.leftBarsBattle}>
                     <div className={gameStyle.hpBattleCluster}>
-                      <div className={gameStyle.hpBattleValue}>{GAME_HP_MAX}</div>
+                      <div className={gameStyle.hpBattleValue}>{tutorialHp.player}</div>
                       <div className={gameStyle.hpAndEvalRow}>
                         {showTutorialEvalHint ? (
                           <div className={gameStyle.tutorialEvalHint} role="dialog" aria-modal="true" aria-label="Tutorial eval hint">
@@ -1562,15 +2039,47 @@ export function Game({ mode = 'normal' }: GameProps) {
                         ) : null}
                         <aside className={gameStyle.hpPanelBattle} aria-label="Player HP">
                           <div className={gameStyle.hpTrack}>
-                            <div className={gameStyle.hpFill} style={{ '--hp-pct': '100%' } as CSSProperties} />
+                            <div
+                              className={gameStyle.hpFill}
+                              style={{
+                                '--hp-pct': `${GAME_HP_MAX <= 0 ? 0 : Math.min(100, (tutorialHp.player / GAME_HP_MAX) * 100)}%`,
+                              } as CSSProperties}
+                            />
                           </div>
                         </aside>
-                        <EvaluationBar centipawns={tutorialBattleState?.eval.centipawns ?? 0} invert />
+                        <EvaluationBar centipawns={tutorialBattleState?.eval.centipawns ?? 0} invert horizontalOnMobile />
                       </div>
                     </div>
                   </div>
                 )}
                 <div className={gameStyle.boardMiddleColumn}>
+                  <p className={gameStyle.matchPlayersBanner} aria-label="Tutorial match">
+                    <span className={gameStyle.matchPlayerSelf}>
+                      <span className={gameStyle.matchNameGroup}>
+                        <span className={gameStyle.matchPlayerName}>You</span>
+                      </span>
+                      <span className={gameStyle.matchHpPill} aria-label={`Your HP ${tutorialHp.player}`}>
+                        {tutorialHp.player}
+                      </span>
+                    </span>
+                    <span className={gameStyle.matchPlayersVs}>vs</span>
+                    <span className={gameStyle.matchPlayerOpponentSlot}>
+                      <span className={gameStyle.matchNameGroup}>
+                        <span className={gameStyle.matchPlayerName}>Trainer</span>
+                      </span>
+                      <span
+                        className={`${gameStyle.matchHpPill} ${gameStyle.matchHpPillOpponent}`}
+                        aria-label={`Opponent HP ${tutorialHp.trainer}`}
+                      >
+                        {tutorialHp.trainer}
+                      </span>
+                    </span>
+                  </p>
+                  {!tutorialInBattle && shopError ? (
+                    <p className={gameStyle.shopFeedback} role="alert" aria-live="polite">
+                      {shopError}
+                    </p>
+                  ) : null}
                   <div className={gameStyle.boardSlot}>
                     {!tutorialInBattle ? (
                       <LobbyChessBoard
@@ -1631,7 +2140,10 @@ export function Game({ mode = 'normal' }: GameProps) {
                     )}
                   </div>
                   {tutorialInBattle && tutorialBattleState && tutorialBattleState.eval.principalVariation.length > 0 ? (
-                    <div className={gameStyle.battlePvPanel} aria-label="Tutorial engine move line">
+                    <div
+                      className={`${gameStyle.battlePvPanel} ${gameStyle.tutorialBattlePvPanel}`}
+                      aria-label="Tutorial engine move line"
+                    >
                       <ul className={gameStyle.battlePvList}>
                         {tutorialBattleState.eval.principalVariation.slice(0, PV_REPLAY_MAX_PLIES).map((uci, i) => {
                           const n = i + 1
@@ -1650,275 +2162,16 @@ export function Game({ mode = 'normal' }: GameProps) {
                       </ul>
                     </div>
                   ) : null}
+                  {renderTutorialShopArea()}
                 </div>
-                <aside className={gameStyle.rightActions} aria-label="Tutorial actions">
-                  <div className={gameStyle.tutorialRoundTimerAnchor}>
-                    {showTutorialTimerBattleHint ? (
-                      <div className={gameStyle.tutorialTimerBattleHint} role="dialog" aria-modal="true" aria-label="Round timer hint">
-                        <p className={gameStyle.tutorialTimerBattleHintText}>When the time runs out, the battle begins.</p>
-                        <button
-                          type="button"
-                          className={gameStyle.tutorialTimerBattleHintButton}
-                          onClick={() => {
-                            setShowTutorialTimerBattleHint(false)
-                            setTutorialTimerBattleHintAcknowledged(true)
-                          }}
-                        >
-                          OK
-                        </button>
-                      </div>
-                    ) : null}
-                    <div className={gameStyle.roundTimer} aria-label="Round timer">
-                      <span className={gameStyle.roundTimerLabel}>{tutorialInBattle ? 'Battle' : 'Round timer'}</span>
-                      <span className={gameStyle.roundTimerValue}>
-                        {tutorialInBattle ? 'Battle' : formatRoundTime(tutorialRoundTimeLeft)}
-                      </span>
-                    </div>
-                  </div>
-                  <div className={gameStyle.matchButtons}>
-                    <button
-                      type="button"
-                      className={gameStyle.resignButton}
-                      onClick={() => {
-                        setTutorialBenchSlots([...TUTORIAL_BENCH])
-                        setTutorialBoardPieces([])
-                        setTutorialKingSquare({ col: 4, row: 7 })
-                        setTutorialPawnMoney(TUTORIAL_START_MONEY)
-                        setTutorialPawnMoneyCap(TUTORIAL_START_MONEY)
-                        setTutorialRoundTimeLeft(ROUND_DURATION_SEC)
-                        setTutorialTimerSeed((n) => n + 1)
-                        setTutorialInBattle(false)
-                        setTutorialBattleState(null)
-                        setTutorialBattleError('')
-                        setTutorialPvMovesApplied(0)
-                        setShopError('')
-                        setTutorialBattlesCompleted(0)
-                        setTutorialRemoveHintAcknowledged(false)
-                        setShowTutorialTimerBattleHint(false)
-                        setTutorialTimerBattleHintAcknowledged(false)
-                        setShowTutorialKnightBishopHint(false)
-                        setTutorialKnightBishopHintAcknowledged(false)
-                        setTutorialEnemyPieces([...TUTORIAL_ENEMY_PIECES])
-                        setShowTutorialComplete(false)
-                      }}
-                    >
-                      Reset setup
-                    </button>
-                    <button
-                      type="button"
-                      className={gameStyle.drawButton}
-                      onClick={() => navigate('/', { replace: true })}
-                    >
-                      Back to menu
-                    </button>
-                    <div className={gameStyle.tutorialRemoveAnchor}>
-                      {showTutorialRemoveHint ? (
-                        <div className={gameStyle.tutorialRemoveHint} role="dialog" aria-modal="true" aria-label="Tutorial remove hint">
-                          <p className={gameStyle.tutorialRemoveHintText}>
-                            This is Remove. Drag a piece from your bench or board here to remove it and get its cost back in pawns.
-                          </p>
-                          <button
-                            type="button"
-                            className={gameStyle.tutorialRemoveHintButton}
-                            onClick={() => setTutorialRemoveHintAcknowledged(true)}
-                          >
-                            OK
-                          </button>
-                        </div>
-                      ) : null}
-                      <div
-                        className={`${gameStyle.sellBin} ${sellBinVisible || showTutorialRemoveHint ? gameStyle.sellBinVisible : ''} ${sellBinOver ? gameStyle.sellBinOver : ''}`}
-                        onDragEnter={(ev) => {
-                          ev.preventDefault()
-                          setSellBinOver(true)
-                        }}
-                        onDragOver={(ev) => {
-                          ev.preventDefault()
-                          ev.dataTransfer.dropEffect = 'move'
-                          setSellBinOver(true)
-                        }}
-                        onDragLeave={() => setSellBinOver(false)}
-                        onDrop={(ev) => handleTutorialSellDrop(ev)}
-                        role="region"
-                        aria-label="Drop here to remove piece"
-                      >
-                        <svg
-                          className={gameStyle.sellBinIcon}
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.6"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden
-                        >
-                          <path d="M3 6h18" />
-                          <path d="M8 6V4h8v2" />
-                          <path d="M6 6l1 14h10l1-14" />
-                          <path d="M10 11v6M14 11v6" />
-                        </svg>
-                        <span className={gameStyle.sellBinLabel}>Remove</span>
-                      </div>
-                    </div>
-                  </div>
-                </aside>
+                {showTutorialAsideInShell ? renderTutorialAside() : null}
               </div>
-
-              {!tutorialInBattle ? (
-                <div className={gameStyle.tutorialShopGuideArea}>
-                  <div className={gameStyle.tutorialBenchAnchor}>
-                    {showTutorialBenchHint ? (
-                      <div className={gameStyle.tutorialBenchHint} role="dialog" aria-modal="true" aria-label="Tutorial bench hint">
-                        <p className={gameStyle.tutorialBenchHintText}>This is your bench where the pieces are saved.</p>
-                        <button
-                          type="button"
-                          className={gameStyle.tutorialBenchHintButton}
-                          onClick={() => setShowTutorialBenchHint(false)}
-                        >
-                          OK
-                        </button>
-                      </div>
-                    ) : null}
-                    {showTutorialDragHint ? (
-                      <div className={gameStyle.tutorialBenchHint} role="dialog" aria-modal="true" aria-label="Tutorial drag hint">
-                        <p className={gameStyle.tutorialBenchHintText}>Tap a piece to select it, then tap a board square to place it. On desktop you can also drag.</p>
-                        <button
-                          type="button"
-                          className={gameStyle.tutorialBenchHintButton}
-                          onClick={() => setShowTutorialDragHint(false)}
-                        >
-                          OK
-                        </button>
-                      </div>
-                    ) : null}
-                    <div className={gameStyle.bench} aria-label="Tutorial bench">
-                      {tutorialBenchSlots.map((piece, i) => (
-                        <div key={i} className={gameStyle.benchSlot} aria-label={piece ? `Bench slot ${i + 1}, ${piece}` : `Bench slot ${i + 1}`}>
-                          {piece ? (
-                            <img
-                              src={PIECE_SPRITES[piece]}
-                              alt=""
-                              aria-hidden
-                              className={`${gameStyle.benchPiece} ${gameStyle.benchPieceDraggable} ${tapSelection?.source === 'bench' && tapSelection.benchSlot === i ? gameStyle.benchPieceSelected : ''}`}
-                              draggable
-                              onDragStart={(e) => {
-                                assignSpriteDragPreviewCanvas(e.nativeEvent, e.currentTarget)
-                                setBenchDragData(e.dataTransfer, i)
-                                startSellableDrag()
-                              }}
-                              onDragEnd={() => endSellableDrag()}
-                              onClick={() => {
-                                if (!tutorialDragHintShown) {
-                                  setTutorialDragHintShown(true)
-                                  setShowTutorialDragHint(true)
-                                }
-                                if (tapSelection?.source === 'bench' && tapSelection.benchSlot === i) {
-                                  setTapSelection(null)
-                                } else {
-                                  setTapSelection({ source: 'bench', benchSlot: i })
-                                }
-                              }}
-                            />
-                          ) : null}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div className={gameStyle.tutorialShopAnchor}>
-                    {showTutorialShopHint ? (
-                      <div className={gameStyle.tutorialShopHint} role="dialog" aria-modal="true" aria-label="Tutorial shop hint">
-                        <p className={gameStyle.tutorialShopHintText}>You can buy pieces here.</p>
-                        <button
-                          type="button"
-                          className={gameStyle.tutorialShopHintButton}
-                          onClick={() => {
-                            setShowTutorialShopHint(false)
-                          }}
-                        >
-                          OK
-                        </button>
-                      </div>
-                    ) : null}
-                    {showTutorialKnightBishopHint ? (
-                      <div
-                        className={gameStyle.tutorialKnightBishopHint}
-                        role="dialog"
-                        aria-modal="true"
-                        aria-label="Knight and bishop shop hint"
-                      >
-                        <p className={gameStyle.tutorialKnightBishopHintText}>
-                          Here are the knight and bishop. Each costs 3 pawns - you can buy them when you have enough.
-                        </p>
-                        <button
-                          type="button"
-                          className={gameStyle.tutorialKnightBishopHintButton}
-                          onClick={() => {
-                            setShowTutorialKnightBishopHint(false)
-                            setTutorialKnightBishopHintAcknowledged(true)
-                          }}
-                        >
-                          OK
-                        </button>
-                      </div>
-                    ) : null}
-                    <div className={gameStyle.hudInner}>
-                      <div className={gameStyle.shopSellRow}>
-                        <div className={gameStyle.shop} aria-label="Piece shop">
-                          <button
-                            type="button"
-                            className={gameStyle.shopItem}
-                            aria-label={SHOP_ORDER[0]}
-                            onClick={() => handleTutorialBuy(SHOP_ORDER[0]!)}
-                            disabled={
-                              tutorialPawnMoney < shopCosts[SHOP_ORDER[0]!] ||
-                              !tutorialBenchSlots.some((v) => v == null)
-                            }
-                            title={`Cost: ${shopCosts[SHOP_ORDER[0]!]}`}
-                          >
-                            <img
-                              src={PIECE_SPRITES[SHOP_ORDER[0]!]}
-                              alt=""
-                              aria-hidden
-                              className={gameStyle.shopPieceImage}
-                            />
-                          </button>
-                          <div className={gameStyle.tutorialKnightBishopPair}>
-                            {(['knight', 'bishop'] as const).map((piece) => (
-                              <button
-                                key={piece}
-                                type="button"
-                                className={gameStyle.shopItem}
-                                aria-label={piece}
-                                onClick={() => handleTutorialBuy(piece)}
-                                disabled={
-                                  tutorialPawnMoney < shopCosts[piece] || !tutorialBenchSlots.some((v) => v == null)
-                                }
-                                title={`Cost: ${shopCosts[piece]}`}
-                              >
-                                <img src={PIECE_SPRITES[piece]} alt="" aria-hidden className={gameStyle.shopPieceImage} />
-                              </button>
-                            ))}
-                          </div>
-                          {SHOP_ORDER.slice(3).map((piece) => (
-                            <button
-                              key={piece}
-                              type="button"
-                              className={gameStyle.shopItem}
-                              aria-label={piece}
-                              onClick={() => handleTutorialBuy(piece)}
-                              disabled={
-                                tutorialPawnMoney < shopCosts[piece] || !tutorialBenchSlots.some((v) => v == null)
-                              }
-                              title={`Cost: ${shopCosts[piece]}`}
-                            >
-                              <img src={PIECE_SPRITES[piece]} alt="" aria-hidden className={gameStyle.shopPieceImage} />
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+              )}
+              {tutorialMobileLayout ? (
+                <>
+                  {renderTutorialShopArea()}
+                  {!tutorialInBattle ? renderTutorialAside() : null}
+                </>
               ) : null}
 
             </div>
@@ -2017,6 +2270,12 @@ export function Game({ mode = 'normal' }: GameProps) {
       <div className={gameStyle.boardArea}>
         <div className={gameStyle.boardWithHp}>
             <div className={gameStyle.boardColumn}>
+            {phase === 'shop' ? (
+              <div className={`${gameStyle.roundTimer} ${gameStyle.mobileTopTimer}`} aria-label="Round timer">
+                <span className={gameStyle.roundTimerLabel}>Round timer</span>
+                <span className={gameStyle.roundTimerValue}>{formatRoundTime(roundTimeLeft)}</span>
+              </div>
+            ) : null}
             {(phase === 'shop' || (phase === 'battle' && battleResult && battleBoardDisplay)) ? (
               <p className={gameStyle.matchPlayersBanner} aria-label="Match players">
                 <span className={gameStyle.matchPlayerSelf}>
@@ -2100,7 +2359,11 @@ export function Game({ mode = 'normal' }: GameProps) {
                           />
                         </div>
                       </aside>
-                      <EvaluationBar centipawns={battleResult.centipawns} invert={battleResult.currentUserIsWhite} />
+                      <EvaluationBar
+                        centipawns={battleResult.centipawns}
+                        invert={battleResult.currentUserIsWhite}
+                        horizontalOnMobile
+                      />
                     </div>
                   </div>
                 </div>
@@ -2191,7 +2454,10 @@ export function Game({ mode = 'normal' }: GameProps) {
                 ) : null}
               </div>
 
-              <aside className={gameStyle.rightActions} aria-label="Match actions">
+              <aside
+                className={`${gameStyle.rightActions} ${phase === 'battle' ? gameStyle.battleActionsMobileHidden : ''} ${phase === 'shop' ? gameStyle.mobileHideShopRightActions : ''}`}
+                aria-label="Match actions"
+              >
                 <div className={gameStyle.roundTimer} aria-label="Round timer">
                   <span className={gameStyle.roundTimerLabel}>
                     {phase === 'shop' ? 'Round timer' : 'Phase'}
@@ -2205,17 +2471,8 @@ export function Game({ mode = 'normal' }: GameProps) {
                     <button type="button" className={gameStyle.resignButton} onClick={() => void resignMatch()}>
                       Resign
                     </button>
-                    <button
-                      type="button"
-                      className={gameStyle.drawButton}
-                      onClick={() => {
-                        window.alert('Draw offer feature is coming soon.')
-                      }}
-                    >
-                      Draw
-                    </button>
                     <div
-                      className={`${gameStyle.sellBin} ${sellBinVisible ? gameStyle.sellBinVisible : ''} ${sellBinOver ? gameStyle.sellBinOver : ''}`}
+                      className={`${gameStyle.sellBin} ${sellBinVisible || tapSelection?.source === 'bench' || tapSelection?.source === 'board' ? gameStyle.sellBinVisible : ''} ${sellBinOver ? gameStyle.sellBinOver : ''}`}
                       onDragEnter={(ev) => {
                         ev.preventDefault()
                         setSellBinOver(true)
@@ -2227,6 +2484,7 @@ export function Game({ mode = 'normal' }: GameProps) {
                       }}
                       onDragLeave={() => setSellBinOver(false)}
                       onDrop={(ev) => void handleSellDrop(ev)}
+                      onClick={() => void handleSellTap()}
                       role="region"
                       aria-label="Drop here to sell piece for pawns"
                     >
@@ -2318,6 +2576,52 @@ export function Game({ mode = 'normal' }: GameProps) {
                         </button>
                       ))}
                     </div>
+                  </div>
+                </div>
+                <div className={gameStyle.mobileShopActions}>
+                  <button
+                    type="button"
+                    className={`${gameStyle.resignButton} ${gameStyle.mobileResignButton}`}
+                    onClick={() => void resignMatch()}
+                  >
+                    <span className={gameStyle.mobileResignIcon} aria-hidden>
+                      🚩
+                    </span>
+                    <span>Resign</span>
+                  </button>
+                  <div
+                    className={`${gameStyle.sellBin} ${sellBinVisible || tapSelection?.source === 'bench' || tapSelection?.source === 'board' ? gameStyle.sellBinVisible : ''} ${sellBinOver ? gameStyle.sellBinOver : ''}`}
+                    onDragEnter={(ev) => {
+                      ev.preventDefault()
+                      setSellBinOver(true)
+                    }}
+                    onDragOver={(ev) => {
+                      ev.preventDefault()
+                      ev.dataTransfer.dropEffect = 'move'
+                      setSellBinOver(true)
+                    }}
+                    onDragLeave={() => setSellBinOver(false)}
+                    onDrop={(ev) => void handleSellDrop(ev)}
+                    onClick={() => void handleSellTap()}
+                    role="region"
+                    aria-label="Drop here to sell piece for pawns"
+                  >
+                    <svg
+                      className={gameStyle.sellBinIcon}
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                    >
+                      <path d="M3 6h18" />
+                      <path d="M8 6V4h8v2" />
+                      <path d="M6 6l1 14h10l1-14" />
+                      <path d="M10 11v6M14 11v6" />
+                    </svg>
+                    <span className={gameStyle.sellBinLabel}>Sell</span>
                   </div>
                 </div>
               </>

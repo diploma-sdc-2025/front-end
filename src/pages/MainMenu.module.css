@@ -684,6 +684,23 @@
   transform: translateY(1px);
 }
 
+.settingsNavButton:disabled,
+.settingsNavButton[aria-disabled='true'] {
+  opacity: 0.48;
+  cursor: not-allowed;
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.01);
+  color: rgba(220, 228, 236, 0.62);
+  box-shadow: none;
+  filter: grayscale(0.35);
+}
+
+.settingsNavButton:disabled:hover,
+.settingsNavButton[aria-disabled='true']:hover {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.01);
+}
+
 .settingsPanelWrap {
   margin-top: 24px;
   display: flex;

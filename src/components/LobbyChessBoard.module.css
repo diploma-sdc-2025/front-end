@@ -32,10 +32,13 @@
 
 
 
-.boardCompact {
-
+/* Must beat `.board { --board-inner: var(--chess-board-inner) }` when both classes apply (bundle order otherwise picks the larger inner on wide viewports). */
+.board.boardCompact {
   --board-inner: var(--chess-board-inner-compact);
+}
 
+.boardCompact {
+  --board-inner: var(--chess-board-inner-compact);
 }
 
 

@@ -34,17 +34,17 @@ describe('api/client', () => {
       status: 401,
       headers: { 'Content-Type': 'application/json' },
     })
-    await expect(readApiError(res)).resolves.toBe('Invalid token')
+    await expect(readApiError(res)).resolves.toBe('Invalid token (HTTP 401 )')
   })
 
   it('falls back to status text or body truncation', async () => {
     const empty = new Response('', { status: 503, statusText: 'Service Unavailable' })
-    await expect(readApiError(empty)).resolves.toBe('Service Unavailable')
+    await expect(readApiError(empty)).resolves.toBe('Service Unavailable (HTTP 503 )')
 
     const longText = 'x'.repeat(250)
     const longRes = new Response(longText, { status: 400 })
     const message = await readApiError(longRes)
-    expect(message.endsWith('…')).toBe(true)
-    expect(message.length).toBe(201)
+    expect(message).toContain('(HTTP 400')
+    expect(message.startsWith(`${'x'.repeat(200)}…`)).toBe(true)
   })
 })

@@ -8,6 +8,12 @@
   background: radial-gradient(circle at 50% 20%, #1f2a22 0%, #0e1310 65%, #090c09 100%);
   overflow: hidden;
   position: relative;
+  /* Default board tokens between breakpoints (overridden ≤900px and ≥1100px). */
+  --chess-board-label-gutter: 18px;
+  --chess-board-inner-compact: round(down, min(72vmin, min(880px, calc(100vw - 200px))), 8px);
+  --chess-board-inner: round(down, min(78vmin, min(940px, calc(100vw - 180px))), 8px);
+  /* Extra length for battle HP + eval rails: bottom extends slightly past the board widget. */
+  --battle-rail-extra-below: 16px;
 }
 
 .matchEndOverlay {
@@ -579,10 +585,17 @@
 }
 
 .tutorialRoundTimerAnchor {
-  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+
+/* Sizes to the visible timer chip so tooltip % centering and arrows align with it (not full column width). */
+.tutorialRoundTimerHitArea {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
 }
 
 .tutorialTimerBattleHint {
@@ -770,9 +783,46 @@
   flex-shrink: 0;
 }
 
-/* Match eval bar height: board outer (grid + rank/file gutter). */
+/* Match board outer height; desktop adds a small tail below the board (see min-width:901). */
 .leftBarsBattle .hpTrack {
   height: calc(var(--chess-board-inner-compact) + var(--chess-board-label-gutter, 18px));
+}
+
+@media (min-width: 901px) {
+  .leftBarsBattle .hpTrack,
+  .leftBarsBattle .evalBarTrack {
+    height: calc(
+      var(--chess-board-inner-compact) + var(--chess-board-label-gutter, 18px) + var(--battle-rail-extra-below, 0px)
+    );
+  }
+
+  /*
+   * Battle rails must line up with the board, not with “board + move list”.
+   * The HP number sat above the rails in normal flow and pushed the tracks down past the board bottom.
+   * Float the value above the cluster so the rail column height matches the board outer height only.
+   */
+  .hpBattleCluster {
+    position: relative;
+    gap: 0;
+    justify-content: flex-end;
+    min-height: calc(
+      var(--chess-board-inner-compact) + var(--chess-board-label-gutter, 18px) + var(--battle-rail-extra-below, 0px)
+    );
+  }
+
+  .hpBattleValue {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: calc(100% + 6px);
+    z-index: 2;
+  }
+
+  .hpAndEvalRow {
+    flex: 1 1 auto;
+    align-self: stretch;
+    min-height: 0;
+  }
 }
 
 .hpBattleCluster {
@@ -824,7 +874,7 @@
 .evalBarTrack {
   position: relative;
   width: 28px;
-  /* Match .board outer height (grid + rank/file gutter), not inner grid only. */
+  /* Default: match compact board outer; battle row extends on wider viewports (see min-width:901). */
   height: calc(var(--chess-board-inner-compact) + var(--chess-board-label-gutter, 18px));
   border-radius: 4px;
   overflow: hidden;
@@ -902,10 +952,37 @@
 }
 
 .boardColumn {
+  --board-outer: calc(var(--chess-board-inner-compact) + var(--chess-board-label-gutter, 18px));
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
+}
+
+/*
+ * Tutorial desktop: match banner lives inside boardMiddleColumn; rails/actions sit in boardShell beside it.
+ * Vars live on tutorialBoardColumn so sibling rails can read them (not on boardMiddleColumn).
+ */
+.tutorialBoardColumn {
+  --tutorial-banner-offset: calc(0.85rem * 1.35 + 12px + 2px + 8px + 12px);
+  --tutorial-shop-left-rails-height: calc(var(--chess-board-inner-compact) + 8px + 1.05rem);
+}
+
+@media (min-width: 901px) {
+  /* Skip banner height, then vertically center HP/money cluster with board outer height */
+  .tutorialBoardColumn .boardShell > .leftBars {
+    margin-top: calc(
+      var(--tutorial-banner-offset)
+      + max(
+        0px,
+        (var(--chess-board-inner-compact) + var(--chess-board-label-gutter, 18px) - var(--tutorial-shop-left-rails-height)) / 2
+      )
+    );
+  }
+
+  .tutorialBoardColumn .boardShell > .leftBarsBattle {
+    margin-top: var(--tutorial-banner-offset);
+  }
 }
 
 .hpPanel {
@@ -1075,6 +1152,7 @@
   gap: 10px;
   flex-wrap: wrap;
 }
+
 
 .matchPlayersVs {
   flex-shrink: 0;
@@ -1363,6 +1441,7 @@
 }
 
 .rightActions {
+  flex-shrink: 0;
   min-height: calc(var(--chess-board-inner-compact) + var(--chess-board-label-gutter, 18px));
   display: flex;
   flex-direction: column;
@@ -1377,6 +1456,30 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
+}
+
+.tutorialMatchButtons {
+  width: 100%;
+}
+
+.tutorialControlIcon {
+  display: none;
+}
+
+.tutorialControlLabel {
+  display: inline;
+}
+
+.mobileShopActions {
+  display: none;
+}
+
+.mobileResignButton {
+  gap: 6px;
+}
+
+.mobileResignIcon {
+  display: none;
 }
 
 .resignButton {
@@ -1440,6 +1543,11 @@
   line-height: 1;
 }
 
+/* Top-of-column timer: hidden on desktop. Must follow .roundTimer (same specificity, later wins). */
+.roundTimer.mobileTopTimer {
+  display: none;
+}
+
 .shopItem {
   box-sizing: border-box;
   flex: 0 0 auto;
@@ -1493,6 +1601,7 @@
     --chess-board-inner-compact: min(90vw, calc(100vw - 20px));
     --chess-board-inner-compact: round(down, min(90vw, calc(100vw - 20px)), 8px);
     --chess-board-inner: var(--chess-board-inner-compact);
+    --battle-rail-extra-below: 0px;
     overflow-x: hidden;
     overflow-y: auto;
   }
@@ -1501,6 +1610,7 @@
     width: 100%;
     max-width: 100%;
     min-width: 0;
+    justify-content: center;
     align-items: flex-start;
   }
 
@@ -1510,11 +1620,22 @@
     min-width: 0;
     box-sizing: border-box;
     padding-inline: 6px;
+    margin-inline: auto;
+  }
+
+  /* Tutorial shop on narrow screens: column order is fixed in JSX (no `display:contents` — broken on iOS Safari). */
+  .tutorialBoardColumn {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .tutorialBoardColumn > .roundTimer.mobileTopTimer {
+    align-self: center;
   }
 
   .boardShell {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr);
     align-items: start;
     justify-items: center;
     width: 100%;
@@ -1529,6 +1650,7 @@
     grid-row: 1;
     width: 100%;
     max-width: 100%;
+    margin-inline: auto;
   }
 
   .leftBars,
@@ -1537,9 +1659,13 @@
     grid-row: 2;
     flex-direction: row;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     width: 100%;
     gap: 10px;
+  }
+
+  .leftBarsBattle {
+    grid-column: 1 / -1;
   }
 
   .leftBarsPlaceholder {
@@ -1614,18 +1740,45 @@
   }
 
   .rightActions {
-    grid-column: 2;
-    grid-row: 2;
+    grid-column: 1;
+    grid-row: 3;
     min-height: auto;
     width: 100%;
     flex-direction: column;
-    align-items: center;
+    align-items: stretch;
     justify-content: flex-start;
     gap: 6px;
   }
 
+  .tutorialBattleActions {
+    display: none;
+  }
+
+  .tutorialPostShopActions {
+    margin-top: 2px;
+  }
+
+  .battleActionsMobileHidden {
+    display: none;
+  }
+
+  .mobileHideShopRightActions {
+    display: none;
+  }
+
   .roundTimer {
     padding: 4px 10px;
+  }
+
+  .roundTimer.mobileTopTimer {
+    display: flex;
+    width: min(var(--board-outer), calc(100vw - 12px));
+    margin: 0 auto 4px;
+  }
+
+  .rightActions .roundTimer,
+  .tutorialPostShopActions .roundTimer {
+    display: none;
   }
 
   .matchButtons {
@@ -1633,11 +1786,99 @@
     gap: 6px;
   }
 
+  .tutorialMatchButtons {
+    width: 100%;
+    position: relative;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    align-self: stretch;
+    padding-top: 56px;
+  }
+
+  .tutorialRoundTimerAnchor {
+    width: 100%;
+    align-items: center;
+  }
+
+  .tutorialRemoveAnchor {
+    position: absolute;
+    top: 0;
+    right: 0;
+    margin-left: 0;
+  }
+
+  .tutorialControlButton {
+    flex: 0 0 48px;
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+    min-height: 48px;
+    padding: 4px;
+    font-size: 0.76rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .tutorialControlIcon {
+    display: inline;
+    font-size: 1.05rem;
+    line-height: 1;
+  }
+
+  .tutorialControlLabel {
+    display: none;
+  }
+
   .resignButton,
   .drawButton {
     padding: 5px 10px;
     font-size: 0.78rem;
     min-width: auto;
+  }
+
+  .sellBin {
+    width: 48px;
+    height: 48px;
+    border-radius: 10px;
+  }
+
+  .sellBinIcon {
+    width: 18px;
+    height: 18px;
+  }
+
+  .sellBinLabel {
+    font-size: 0.56rem;
+  }
+
+  .mobileShopActions {
+    width: 100%;
+    max-width: min(var(--board-outer), calc(100vw - 12px));
+    margin: 4px auto 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+  }
+
+  .mobileShopActions .sellBin {
+    margin-left: auto;
+  }
+
+  .mobileResignButton {
+    min-width: 96px;
+    min-height: 40px;
+    border-color: rgba(220, 92, 92, 0.65);
+    background: rgba(48, 16, 16, 0.82);
+  }
+
+  .mobileResignIcon {
+    display: inline;
+    font-size: 0.92rem;
+    line-height: 1;
   }
 
   .tutorialShopGuideArea {
@@ -1780,24 +2021,24 @@
   }
 
   .tutorialTimerBattleHint {
-    left: auto;
-    right: 0;
-    top: -10px;
+    left: 50%;
+    right: auto;
+    top: calc(100% + 10px);
     width: min(260px, calc(100vw - 24px));
-    transform: translateY(-100%);
+    transform: translateX(-50%);
     margin: 0;
   }
 
   .tutorialTimerBattleHint::after {
-    left: auto;
-    right: 16px;
-    top: auto;
-    bottom: -12px;
-    transform: none;
+    left: 50%;
+    right: auto;
+    top: -12px;
+    bottom: auto;
+    transform: translateX(-50%);
     border-left: 10px solid transparent;
     border-right: 10px solid transparent;
-    border-top: 12px solid rgba(177, 196, 165, 0.75);
-    border-bottom: none;
+    border-bottom: 12px solid rgba(177, 196, 165, 0.75);
+    border-top: none;
   }
 
   .tutorialKnightBishopHint {
@@ -1821,28 +2062,71 @@
     border-bottom: none;
   }
 
+  .tutorialBenchHintButton,
+  .tutorialShopHintButton,
+  .tutorialCurrencyHintButton,
+  .tutorialEvalHintButton,
+  .tutorialRemoveHintButton,
+  .tutorialTimerBattleHintButton,
+  .tutorialKnightBishopHintButton {
+    min-height: 44px;
+    padding: 10px 16px;
+    touch-action: manipulation;
+  }
+
   .evalBarTrack {
     width: 22px;
     height: min(80px, 14vh);
   }
 
+  .evalBarTrackHorizontalMobile {
+    width: 100%;
+    height: 16px;
+    border-radius: 8px;
+    flex-direction: row;
+  }
+
+  .evalBarTrackHorizontalMobile .evalBarWhite,
+  .evalBarTrackHorizontalMobile .evalBarBlack {
+    width: var(--eval-segment, 50%);
+    height: 100% !important;
+  }
+
+  .evalBarTrackHorizontalMobile .evalBarScore {
+    display: flex;
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-50%);
+  }
+
   .hpPanelBattle {
     flex-direction: row;
     align-items: center;
-    width: auto;
+    width: 100%;
     gap: 5px;
   }
 
   .hpBattleCluster {
-    flex-direction: row;
-    align-items: center;
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
     gap: 8px;
   }
 
   .hpAndEvalRow {
-    flex-direction: row;
-    align-items: center;
+    flex-direction: column;
+    align-items: stretch;
     gap: 6px;
+  }
+
+  .hpPanelBattle .hpTrack,
+  .leftBarsBattle .hpTrack {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .tutorialBattlePvPanel {
+    display: none;
   }
 
   .shopItem {

@@ -80,9 +80,10 @@ export function AdminAnalytics() {
       const url = getAdminLiveStreamUrl(accessToken)
       source = new EventSource(url)
 
-      source.addEventListener('metrics', (ev) => {
+      const applyRealtimePayload = (raw: string | null | undefined) => {
         try {
-          const parsed = JSON.parse((ev as MessageEvent).data) as Record<string, unknown>
+          if (!raw) return
+          const parsed = JSON.parse(raw) as Record<string, unknown>
           const merged = mergeMetrics(parsed)
           setMetrics(merged)
           setError(null)
@@ -92,10 +93,25 @@ export function AdminAnalytics() {
         } catch {
           setError('Malformed realtime payload')
         }
+      }
+
+      source.onopen = () => {
+        setConn('connected')
+        setError(null)
+      }
+
+      // Backend usually sends named events (`event: metrics`).
+      source.addEventListener('metrics', (ev) => {
+        applyRealtimePayload((ev as MessageEvent).data)
       })
 
+      // Fallback for default SSE messages (no explicit event name).
+      source.onmessage = (ev) => {
+        applyRealtimePayload(ev.data)
+      }
+
       source.onerror = () => {
-        setConn('disconnected')
+        setConn('reconnecting')
         setError('Live stream unavailable. Reconnecting…')
         try {
           source?.close()
@@ -147,9 +163,9 @@ export function AdminAnalytics() {
                 />
               </svg>
             </span>
-            <span>Back</span>
+            <span className={style.backLabel}>Back</span>
           </Link>
-          <div>
+          <div className={style.titleHeading}>
             <h1>Live Game Analytics</h1>
           </div>
         </div>

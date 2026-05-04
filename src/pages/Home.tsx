@@ -5,7 +5,7 @@ import menuStyle from './MainMenu.module.css'
 import { useEffect, useMemo, useState } from 'react'
 import { useMatchmakingQueue } from '../hooks/useMatchmakingQueue.ts'
 import { resolveDisplayName } from '../util/displayName.ts'
-import { parseUserIdFromAccessToken } from '../util/jwtClaims.ts'
+import { parseIsGuestFromAccessToken, parseUserIdFromAccessToken } from '../util/jwtClaims.ts'
 import { isAdminFromAccessToken } from '../util/adminAccess.ts'
 import { analyticsApi, type PlayerStats } from '../api/analytics.ts'
 import { fetchUsersByIds } from '../api/users.ts'
@@ -194,6 +194,7 @@ export function Home() {
   const [selectedQueueMode, setSelectedQueueMode] = useState<'1v1' | '1v3' | null>(null)
   const playerName = useMemo(() => resolveDisplayName(accessToken), [accessToken])
   const myUserId = useMemo(() => parseUserIdFromAccessToken(accessToken), [accessToken])
+  const isGuestFromToken = useMemo(() => parseIsGuestFromAccessToken(accessToken), [accessToken])
   const isAdmin = useMemo(() => isAdminFromAccessToken(accessToken), [accessToken])
 
   useEffect(() => {
@@ -335,6 +336,12 @@ export function Home() {
       setSettingsPanel('root')
     }
   }, [tab])
+
+  useEffect(() => {
+    if (isGuestFromToken && settingsPanel === 'account') {
+      setSettingsPanel('root')
+    }
+  }, [isGuestFromToken, settingsPanel])
 
   useEffect(() => {
     applyDisplayPreferencesToDocument({
@@ -818,6 +825,9 @@ export function Home() {
                           type="button"
                           className={menuStyle.settingsNavButton}
                           onClick={() => setSettingsPanel('account')}
+                          disabled={isGuestFromToken}
+                          aria-disabled={isGuestFromToken}
+                          title={isGuestFromToken ? 'Not available for guest accounts' : undefined}
                         >
                           Account &amp; Profile
                         </button>
