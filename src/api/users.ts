@@ -8,6 +8,16 @@ export interface UserPublic {
   guest: boolean
 }
 
+/** Fill-opponent id (AI). Shown as a normal rated player in the client. */
+export const BOT_USER_ID = 1_000_001
+
+const BOT_PUBLIC: UserPublic = {
+  id: BOT_USER_ID,
+  username: 'Mira',
+  rating: 1016,
+  guest: false,
+}
+
 /** Brackets with rating only for registered users; guests never show a rating. */
 export function formatPlayerLine(profile: UserPublic | undefined, fallback: string, treatAsGuest: boolean): string {
   const name = (profile?.username ?? fallback).trim() || fallback
@@ -21,8 +31,15 @@ export function formatPlayerLine(profile: UserPublic | undefined, fallback: stri
 export async function fetchUsersByIds(accessToken: string, ids: number[]): Promise<Map<number, UserPublic>> {
   const map = new Map<number, UserPublic>()
   if (!ids.length) return map
-  const params = new URLSearchParams()
   for (const id of ids) {
+    if (id === BOT_USER_ID) {
+      map.set(BOT_USER_ID, BOT_PUBLIC)
+    }
+  }
+  const lookupIds = ids.filter((id) => id !== BOT_USER_ID)
+  if (!lookupIds.length) return map
+  const params = new URLSearchParams()
+  for (const id of lookupIds) {
     params.append('ids', String(id))
   }
   const res = await fetch(getAuthApi(`/api/users/by-ids?${params}`), {
